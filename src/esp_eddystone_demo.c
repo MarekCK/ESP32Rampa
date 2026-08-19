@@ -1060,7 +1060,7 @@ void app_main(void) {
     
     printf("\n\nSender FTMS started.\n\n");
 
-      while (1) {
+    while (1) {
         if (elite_ready) {     //elite_ready
             int btn = gpio_get_level(BOOT_PIN);
             if (btn == 0 && last_btn == 1)
@@ -1079,9 +1079,9 @@ void app_main(void) {
                     elite_send(byte_1, byte_2);    
                 }
             }
-            last_btn = btn;            
-        vTaskDelay(portMAX_DELAY);
-         }
+            last_btn = btn;    
+        }        
+        vTaskDelay(portMAX_DELAY);         
     // vTaskDelete(NULL);
-      }
+    }
 }
