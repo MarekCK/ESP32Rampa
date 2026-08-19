@@ -1031,6 +1031,8 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
 
 void app_main(void) {
 
+    static int16_t btn_press_time;
+
     gpio_config_t io_conf = {.pin_bit_mask = (1ULL << BOOT_PIN), .mode = GPIO_MODE_INPUT, .pull_up_en = GPIO_PULLUP_ENABLE,};
     gpio_config(&io_conf);    
     ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led));
@@ -1067,7 +1069,6 @@ void app_main(void) {
                 TickType_t duration = xTaskGetTickCount() - btn_press_time;
                 if (duration < pdMS_TO_TICKS(1000)) {
                     resistance += 0x10;
-                    red += 0x0
                     red += 0xc0;
                     if (resistance >= 0x200) {
                         resistance = 0x80;
@@ -1075,13 +1076,12 @@ void app_main(void) {
                     }
                     int8_t byte_1 = resistance & 0xff;
                     int8_t byte_2 = resistance  >> 8;
-                    elite_send(byte_1, byte_2);
-                    
+                    elite_send(byte_1, byte_2);    
+                }
             }
-            last_btn = btn;
-        }
+            last_btn = btn;            
         vTaskDelay(portMAX_DELAY);
-    }
+         }
     // vTaskDelete(NULL);
-
+      }
 }
