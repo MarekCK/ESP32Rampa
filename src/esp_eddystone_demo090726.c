@@ -61,7 +61,8 @@ static esp_ble_adv_params_t adv_params = {
     .adv_filter_policy      = ADV_FILTER_ALLOW_SCAN_ANY_CON_ANY,
 };
 
-// static uint8_t last_btn = 1;
+static uint8_t last_btn = 1;
+static uint16_t resistance = 0x80;
 
 const uint8_t elite_uuid[] = {
     0x92, 0xE5, 0x9C, 0x94,
@@ -1072,9 +1073,29 @@ void app_main(void) {
     led_strip_set_pixel(led, 0, red, green, blue);
     led_strip_refresh(led); 
 
+    while (1) {
+        if (elite_ready) {     //elite_ready
+            int btn = gpio_get_level(BOOT_PIN);
+            if (btn == 0 && last_btn == 1)
+                btn_press_time = xTaskGetTickCount();
+            if (btn == 1 && last_btn == 0) {
+                TickType_t duration = xTaskGetTickCount() - btn_press_time;
+                if (duration < pdMS_TO_TICKS(1000)) {
 
-    while (1) 
+                    resistance += 0x10;
+                    if (resistance >= 500)
+                        resistance = 0x80;
+                    int8_t byte_1 = resistance & 0xff;
+                    int8_t byte_2 = resistance  >> 8;
+                    elite_send(byte_1, byte_2);
+                // printf("RES=%02X r=%03d g=%03d b=%03d\n", resistance, r, g, b); 
+                // led_strip_set_pixel(led, 0, r, g, b);
+                // led_strip_refresh(led);
+            }
+            last_btn = btn;
+        }
         vTaskDelay(portMAX_DELAY);
+    }
 }
 
 //---------------------------------------tests----------------------------------------------

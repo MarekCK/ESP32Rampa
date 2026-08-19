@@ -218,6 +218,9 @@ static uint16_t ftms_conn_id = 0;
 static esp_gatt_if_t ftms_gatts_if = 0;
 static bool ftms_connected = false;
 
+static uint8_t last_btn = 1;
+static uint16_t resistance = 0x80;
+
 static const esp_gatts_attr_db_t gatt_db[FTMS_IDX_NB] = {
     [IDX_SVC] =
     {{
@@ -680,19 +683,16 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
         case ESP_GATTC_OPEN_EVT:
             if (param->open.status == ESP_GATT_OK) {
                 // printf("OPEN OK conn_id=%u\n", param->open.conn_id);
-                if(memcmp(param->open.remote_bda, rampa_addr, 6) == 0)
-                {
+                if(memcmp(param->open.remote_bda, rampa_addr, 6) == 0) {
                     rampa_conn_id = param->open.conn_id;
                     rampa_connected = true;
                     // printf("RAMPA CONNECTED\n");
                 }
-                if(memcmp(param->open.remote_bda, xcadey_addr, 6) == 0)
-                {
+                if(memcmp(param->open.remote_bda, xcadey_addr, 6) == 0) {
                     xcadey_conn_id = param->open.conn_id;
                     xcadey_connected = true;
                     // printf("XCADEY CONNECTED\n");
                 }
-
                 esp_ble_gattc_search_service(
                     gattc_if,
                     param->open.conn_id,
@@ -719,7 +719,6 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
                 ESP_GATT_WRITE_TYPE_RSP,
                 ESP_GATT_AUTH_REQ_NONE);
             printf("write CCCD err=%d\n", err);
-
         break;
         case ESP_GATTC_SEARCH_CMPL_EVT: {
             uint16_t current_conn = param->search_cmpl.conn_id;
@@ -815,9 +814,7 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
                 // printf("Elite ready\n");
                 green = 50;
                 red = 0;
-                blue = 0;
-                // led_strip_set_pixel(led, 0, red, green, blue);
-                // led_strip_refresh(led);   
+                blue = 0; 
                 elite_send(0x50 , 0x00);   //set 80W
             }
 
@@ -858,9 +855,7 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
         break;
         case ESP_GATTC_DISCONNECT_EVT:
             // printf("RAMPA DISCONNECTED\n");
-            red = 50; green = 0; blue = 0;
-            // led_strip_set_pixel(led, 0, red, green, blue);
-            // led_strip_refresh(led);   
+            red = 50; green = 0; blue = 0;  
             elite_ready = false;
             h_347b0010 = 0;
             h_347b0011 = 0;           
@@ -995,9 +990,6 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
                         blue = 0;
                         green = 50;
                     }
-                    // led_strip_set_pixel(led, 0, red, green, blue);
-                    // led_strip_refresh(led);   
-
                     uint16_t power = param->write.value[1] | (param->write.value[2] << 8);
                     if (power < 150) 
                         power += 0x10;
@@ -1065,7 +1057,31 @@ void app_main(void) {
     printf("set_scan_params ret=%d\n", ret);   
     
     printf("\n\nSender FTMS started.\n\n");
-  
-    vTaskDelete(NULL);
+
+      while (1) {
+        if (elite_ready) {     //elite_ready
+            int btn = gpio_get_level(BOOT_PIN);
+            if (btn == 0 && last_btn == 1)
+                btn_press_time = xTaskGetTickCount();
+            if (btn == 1 && last_btn == 0) {
+                TickType_t duration = xTaskGetTickCount() - btn_press_time;
+                if (duration < pdMS_TO_TICKS(1000)) {
+                    resistance += 0x10;
+                    red += 0x0
+                    red += 0xc0;
+                    if (resistance >= 0x200) {
+                        resistance = 0x80;
+                        red = 0xc0;
+                    }
+                    int8_t byte_1 = resistance & 0xff;
+                    int8_t byte_2 = resistance  >> 8;
+                    elite_send(byte_1, byte_2);
+                    
+            }
+            last_btn = btn;
+        }
+        vTaskDelay(portMAX_DELAY);
+    }
+    // vTaskDelete(NULL);
 
 }
