@@ -1,4 +1,4 @@
-#Simple project to connect Elite Rampa to MyWoosh.
+# Simple project to connect Elite Rampa to MyWoosh.
 
 Hardware:
 
