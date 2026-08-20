@@ -218,8 +218,6 @@ static uint16_t ftms_conn_id = 0;
 static esp_gatt_if_t ftms_gatts_if = 0;
 static bool ftms_connected = false;
 
-static uint8_t last_btn = 1;
-static uint16_t resistance = 0x80;
 
 static const esp_gatts_attr_db_t gatt_db[FTMS_IDX_NB] = {
     [IDX_SVC] =
@@ -421,7 +419,6 @@ static const esp_gatts_attr_db_t gatt_db[FTMS_IDX_NB] = {
     (uint8_t *)power_range
 }},
 
-
 [IDX_CHAR_BIKE_DATA] =
 {{
     ESP_GATT_AUTO_RSP
@@ -567,10 +564,9 @@ void esp_eddystone_appRegister(void) {
     
     esp_err_t status;
 
-    ESP_LOGI(DEMO_TAG,"Register callback");
+    // ESP_LOGI(DEMO_TAG,"Register callback");
     /*<! register the scan callback function to the gap module */
     if((status = esp_ble_gap_register_callback(esp_gap_cb)) != ESP_OK) {
-        printf("gap register error: %s\n", esp_err_to_name(status));
         ESP_LOGE(DEMO_TAG,"gap register error: %s", esp_err_to_name(status));
         return;
     }
@@ -604,8 +600,8 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
             printf("Scan started %s\n", esp_err_to_name(err));
             if((err = param->scan_start_cmpl.status) != ESP_BT_STATUS_SUCCESS) 
                 ESP_LOGE(DEMO_TAG,"Scan start failed: %s", esp_err_to_name(err));
-            else 
-                ESP_LOGI(DEMO_TAG,"Start scanning...");
+            // else             
+            //     ESP_LOGI(DEMO_TAG,"Start scanning...");
         break;        
         case ESP_GAP_BLE_SCAN_RESULT_EVT: 
             esp_ble_gap_cb_param_t* scan_result = (esp_ble_gap_cb_param_t*)param;
@@ -746,17 +742,17 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
 
             uint16_t count = 0;
 
-            esp_gatt_status_t status =
-                esp_ble_gattc_get_attr_count(
-                    gattc_if,
-                    current_conn,
-                    ESP_GATT_DB_CHARACTERISTIC,
-                    start_handle,
-                    end_handle,
-                    0,
-                    &count);
+//            esp_gatt_status_t status =
+            esp_ble_gattc_get_attr_count(
+                gattc_if,
+                current_conn,
+                ESP_GATT_DB_CHARACTERISTIC,
+                start_handle,
+                end_handle,
+                0,
+                &count);
 
-            printf("exposed=%d status=%d\n", count, status);
+            // printf("exposed=%d status=%d\n", count, status);
 
             if (count == 0)
                 break;
@@ -1031,10 +1027,20 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
 
 void app_main(void) {
 
-    static int16_t btn_press_time;
+    static TickType_t btn_press_time;
+    static int8_t btn, last_btn = 1;
+    static uint16_t resistance = 0x80;
 
-    gpio_config_t io_conf = {.pin_bit_mask = (1ULL << BOOT_PIN), .mode = GPIO_MODE_INPUT, .pull_up_en = GPIO_PULLUP_ENABLE,};
-    gpio_config(&io_conf);    
+    // gpio_config_t io_conf = {.pin_bit_mask = (1ULL << BOOT_PIN), .mode = GPIO_MODE_INPUT, .pull_up_en = GPIO_PULLUP_ENABLE,};
+    gpio_config_t io_cfg = {
+        .pin_bit_mask = (1ULL << BOOT_PIN),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE
+    };
+    gpio_config(&io_cfg);
+    
     ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led));
     xTaskCreate(ledTask, "LED", 4096, NULL, 5, NULL);
     vTaskDelay(pdMS_TO_TICKS(1000));
@@ -1050,38 +1056,56 @@ void app_main(void) {
     esp_ble_gap_set_device_name("ESP32-FTMS");    
     ESP_ERROR_CHECK(esp_ble_gatts_register_callback(gatts_cb));
     ESP_ERROR_CHECK(esp_ble_gatts_app_register(1));    
-    esp_err_t ret;
+    //esp_err_t ret;
 
-    ret = esp_ble_gap_config_adv_data(&adv_data);
-    printf("config_adv_data ret=%d %s\n", ret, esp_err_to_name(ret));
+    //ret = 
+    esp_ble_gap_config_adv_data(&adv_data);
+    // printf("config_adv_data ret=%d %s\n", ret, esp_err_to_name(ret));
 
-    ret = esp_ble_gap_set_scan_params(&ble_scan_params);
-    printf("set_scan_params ret=%d\n", ret);   
+    //ret = 
+    esp_ble_gap_set_scan_params(&ble_scan_params);
+    // printf("set_scan_params ret=%d\n", ret);   
     
     printf("\n\nSender FTMS started.\n\n");
-
+    
     while (1) {
         if (elite_ready) {     //elite_ready
-            int btn = gpio_get_level(BOOT_PIN);
-            if (btn == 0 && last_btn == 1)
+            btn = gpio_get_level(BOOT_PIN);
+            if (btn == 0 && last_btn == 1) 
                 btn_press_time = xTaskGetTickCount();
-            if (btn == 1 && last_btn == 0) {
+            if (btn == 1 && last_btn == 0) {                
                 TickType_t duration = xTaskGetTickCount() - btn_press_time;
-                if (duration < pdMS_TO_TICKS(1000)) {
-                    resistance += 0x10;
-                    red += 0xc0;
-                    if (resistance >= 0x200) {
-                        resistance = 0x80;
-                        red = 0xc0;
+                if (duration > pdMS_TO_TICKS(3000)) {
+                    resistance = 0x80;
+                    red = 0;
+                    // printf("res=%d r=%d, g=%d, b=,%d\n", resistance, red, green, blue);
+                }                
+                else {
+                    if (duration > pdMS_TO_TICKS(1000)) {             //100
+                        resistance += 0x10;
+                        red += 0x0a;
+                        // printf("res=%d r=%d, g=%d, b=,%d\n", resistance, red, green, blue);
+                        if (resistance >= 0x200) {
+                            resistance = 0x80;
+                            red = 0x00;
+                        } 
                     }
-                    int8_t byte_1 = resistance & 0xff;
-                    int8_t byte_2 = resistance  >> 8;
-                    elite_send(byte_1, byte_2);    
+                    else {
+                        if (resistance > 0x80) {
+                            resistance -= 0x10;
+                            red -= 0x0a;
+                            // printf("res=%d r=%d, g=%d, b=,%d\n", resistance, red, green, blue);
+                        }
+                    }
                 }
+                uint8_t byte_1 = resistance & 0xff;
+                uint8_t byte_2 = resistance  >> 8;
+                elite_send(byte_1, byte_2);   
             }
             last_btn = btn;    
         }        
-        vTaskDelay(portMAX_DELAY);         
+        vTaskDelay(pdMS_TO_TICKS(50));         
     // vTaskDelete(NULL);
     }
 }
+

@@ -1,27 +1,15 @@
-How to build PlatformIO based project
-=====================================
+Simple project to connect Elite Rampa to MyWoosh.
 
-1. [Install PlatformIO Core](https://docs.platformio.org/page/core.html)
-2. Download [development platform with examples](https://github.com/platformio/platform-espressif32/archive/develop.zip)
-3. Extract ZIP archive
-4. Run these commands:
+Board ESP32C6
+Elite Rampa trainer
+Xcadey power meter
 
-```shell
-# Change directory to example
-$ cd platform-espressif32/examples/espidf-ble-eddystone
+Read data from Xcadey - resistance & cadence - send to MyWhoosh
 
-# Build project
-$ pio run
+Read resistance setting from MyWhoosh - send to Elite Rampa
 
-# Upload firmware
-$ pio run --target upload
-
-# Build specific environment
-$ pio run -e esp32dev
-
-# Upload firmware for the specific environment
-$ pio run -e esp32dev --target upload
-
-# Clean build files
-$ pio run --target clean
-```# ESP32Rampa
+Can control resistance (free ride) using boot pin:
+- >3 sec - 128W
+- >1 sec - +16W
+- <1 sec - -16W
+ 
