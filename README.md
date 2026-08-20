@@ -11,7 +11,7 @@ Read data from Xcadey - resistance & cadence - send to MyWhoosh
 Read resistance setting from MyWhoosh - send to Elite Rampa
 
 Can control resistance (free ride) using boot pin:
- -  3 sec - 128W
- -  1 sec - +16W
- -  <1 sec - -16W
+ -  \> 3 \>sec - 128W
+ -  \> 1 sec - +16W
+ -  < 1 sec - -16W
  
