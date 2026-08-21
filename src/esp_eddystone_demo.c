@@ -987,7 +987,7 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
                         green = 50;
                     }
                     uint16_t power = param->write.value[1] | (param->write.value[2] << 8);
-                    if (power < 150) 
+                    if (power < 160) 
                         power += 0x10;
                     else
                         power += 0x05;
