@@ -629,7 +629,7 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
                         found_rampa = true;
                     }
                     if (!found_xcadey && strstr(devname, "XPOWER-L 12105")) {
-                        printf("XCadey found!\n");
+                        // printf("XCadey found!\n");
                         memcpy(xcadey_addr, scan_result->scan_rst.bda, sizeof(esp_bd_addr_t));
                         xcadey_addr_type = scan_result->scan_rst.ble_addr_type;
                         found_xcadey = true;
@@ -653,20 +653,8 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
             // printf("Scan stopped\n");
             if(found_rampa) {
                 printf("Connecting Rampa...\n");
-                esp_ble_gattc_open(
-                    gattc_if_global,
-                    rampa_addr,
-                    rampa_addr_type,
-                    true);
+                esp_ble_gattc_open(gattc_if_global, rampa_addr, rampa_addr_type, true);
             }
-            // if(found_xcadey) {
-            //     printf("Connecting XCadey...\n");
-            //     esp_ble_gattc_open(
-            //         gattc_if_global,
-            //         xcadey_addr,
-            //         xcadey_addr_type,
-            //         true);
-            // }
         break;      
         default:
             ;
@@ -676,8 +664,6 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
 
 static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param) {
 
-
-    printf("event, %d\n", event);
     switch(event) {
         case ESP_GATTC_OPEN_EVT:
             if (param->open.status == ESP_GATT_OK) {
@@ -692,15 +678,11 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
                     xcadey_connected = true;
                     // printf("XCADEY CONNECTED\n");
                 }
-                // esp_ble_gattc_search_service(
-                //     gattc_if,
-                //     param->open.conn_id,
-                //     NULL);
 
-                   uint16_t conn_id = param->open.conn_id;
-                    esp_ble_gattc_search_service(gattc_if, conn_id, NULL);
-                    gattc_if_global = gattc_if;
-                    printf("OPEN OK conn_id=%u\n", conn_id);
+                uint16_t conn_id = param->open.conn_id;
+                esp_ble_gattc_search_service(gattc_if, conn_id, NULL);
+                gattc_if_global = gattc_if;
+                // printf("OPEN OK conn_id=%u\n", conn_id);
             }
         break;
         case ESP_GATTC_REG_FOR_NOTIFY_EVT:
@@ -708,72 +690,44 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
                    param->reg_for_notify.status,
                     param->reg_for_notify.handle);
 
-    uint16_t count = 0;
-esp_ble_gattc_get_attr_count(
-    gattc_if,
-    xcadey_conn_id,
-    ESP_GATT_DB_DESCRIPTOR,
-    xcadey_service_start,
-    xcadey_service_end,
-    xcadey_power_handle,
-    &count);
-    printf("descriptor count=%u\n", count);
-esp_gattc_descr_elem_t *descr =
-    malloc(sizeof(esp_gattc_descr_elem_t) * count);
-
-esp_ble_gattc_get_all_descr(
-    gattc_if,
-    xcadey_conn_id,
-    xcadey_power_handle,
-    descr,
-    &count,
-    0);    
-for (int i = 0; i < count; i++)
-{
-    if (descr[i].uuid.len == ESP_UUID_LEN_16)
-    {
-        printf("DESCR UUID=%04X handle=%u\n",
-            descr[i].uuid.uuid.uuid16,
-            descr[i].handle);
-
-        if (descr[i].uuid.uuid.uuid16 == ESP_GATT_UUID_CHAR_CLIENT_CONFIG)
-        {
-            printf("CCCD=%u\n",
-                descr[i].handle);
-
-            uint16_t notify_en = 1;
-
-            esp_ble_gattc_write_char_descr(
+            uint16_t count = 0;
+            esp_ble_gattc_get_attr_count(
                 gattc_if,
                 xcadey_conn_id,
-                descr[i].handle,
-                sizeof(notify_en),
-                (uint8_t *)&notify_en,
-                ESP_GATT_WRITE_TYPE_RSP,
-                ESP_GATT_AUTH_REQ_NONE);
-        }
-    }
-}
-
-free(descr);    
-                    
-            // uint16_t notify_en = 1;
-            // esp_err_t err = esp_ble_gattc_write_char_descr(
-            //     gattc_if,
-            //     xcadey_conn_id,
-            //     34,                  // testowo
-            //     sizeof(notify_en),
-            //     (uint8_t *)&notify_en,
-            //     ESP_GATT_WRITE_TYPE_RSP,
-            //     ESP_GATT_AUTH_REQ_NONE);
-            // printf("write CCCD err=%d\n", err);
+                ESP_GATT_DB_DESCRIPTOR,
+                xcadey_service_start,
+                xcadey_service_end,
+                xcadey_power_handle,
+                &count);
+            // printf("descriptor count=%u\n", count);
+            esp_gattc_descr_elem_t *descr = malloc(sizeof(esp_gattc_descr_elem_t) * count);
+            if (!descr)
+                break;
+            esp_ble_gattc_get_all_descr(gattc_if, xcadey_conn_id, xcadey_power_handle, descr, &count, 0);    
+            for (int i = 0; i < count; i++)
+            {
+                if (descr[i].uuid.len == ESP_UUID_LEN_16) {
+                    // printf("DESCR UUID=%04X handle=%u\n", descr[i].uuid.uuid.uuid16, descr[i].handle);
+                    if (descr[i].uuid.uuid.uuid16 == ESP_GATT_UUID_CHAR_CLIENT_CONFIG) {
+                        // printf("CCCD=%u\n", descr[i].handle);
+                        uint16_t notify_en = 1;
+                        esp_ble_gattc_write_char_descr(
+                            gattc_if,
+                            xcadey_conn_id,
+                            descr[i].handle,
+                            sizeof(notify_en),
+                            (uint8_t *)&notify_en,
+                            ESP_GATT_WRITE_TYPE_RSP,
+                            ESP_GATT_AUTH_REQ_NONE);
+                    }
+                }
+            }
+            free(descr);                        
         break;
         case ESP_GATTC_SEARCH_CMPL_EVT: {
             uint16_t current_conn = param->search_cmpl.conn_id;
-
             uint16_t start_handle = 0;
             uint16_t end_handle   = 0;
-
             bool is_rampa = false;
 
             if (current_conn == rampa_conn_id) {
@@ -791,10 +745,9 @@ free(descr);
                 printf("Unknown conn_id=%u\n", current_conn);
                 break;
             }
-
             uint16_t count = 0;
 
-//            esp_gatt_status_t status =
+            // esp_gatt_status_t status =
             esp_ble_gattc_get_attr_count(
                 gattc_if,
                 current_conn,
@@ -803,26 +756,13 @@ free(descr);
                 end_handle,
                 0,
                 &count);
-
             // printf("exposed=%d status=%d\n", count, status);
-
             if (count == 0)
                 break;
-
             esp_gattc_char_elem_t *chars = malloc(sizeof(esp_gattc_char_elem_t) * count);
-
             if (!chars)
                 break;
-
-            esp_ble_gattc_get_all_char(
-                gattc_if,
-                current_conn,
-                start_handle,
-                end_handle,
-                chars,
-                &count,
-                0);
-
+            esp_ble_gattc_get_all_char(gattc_if, current_conn, start_handle, end_handle, chars, &count,0);
             for (int i = 0; i < count; i++) {
                 if (is_rampa) {
                     if (chars[i].uuid.len == ESP_UUID_LEN_128) {
@@ -832,7 +772,6 @@ free(descr);
                             h_347b0010 = chars[i].char_handle;
                             // printf("347B0010 handle=%u\n", h_347b0010);
                         }
-
                         if (u[13] == 0x00 && u[12] == 0x11) {
                             h_347b0011 = chars[i].char_handle;
                             // printf("347B0011 handle=%u\n", h_347b0011);
@@ -842,8 +781,7 @@ free(descr);
                 else {
                     if (chars[i].uuid.len == ESP_UUID_LEN_16) {
                         uint16_t uuid16 = chars[i].uuid.uuid.uuid16;
-                        printf("XCADEY CHAR UUID=%04X handle=%u\n", uuid16, chars[i].char_handle);
-
+                        // printf("XCADEY CHAR UUID=%04X handle=%u\n", uuid16, chars[i].char_handle);
                         if (uuid16 == 0x2A63) {
                             xcadey_power_handle = chars[i].char_handle;
                             printf("CYCLING POWER handle=%u\n", xcadey_power_handle);
@@ -854,71 +792,47 @@ free(descr);
                             printf("register notify err=%d\n", err);
                         }
                     }
-    
                 }
             }
-if (is_rampa && h_347b0010 && h_347b0011)
-{
-    elite_ready = true;
-
-    printf("Elite ready\n");
-
-    green = 50;
-    red = 0;
-
-    elite_send(0x50, 0x00);
-
-    if(found_xcadey && !xcadey_open_started) {
-        xcadey_open_started = true;
-
-        printf("Connecting XCadey...\n");
-
-        esp_ble_gattc_open(
-            gattc_if_global,
-            xcadey_addr,
-            xcadey_addr_type,
-            true);
-    }
-}
-
-            // if (is_rampa && h_347b0010 && h_347b0011) {
-            //     elite_ready = true;
-            //     // printf("Elite ready\n");
-            //     green = 50;
-            //     red = 0;
-            //     blue = 0; 
-            //     elite_send(0x50 , 0x00);   //set 80W
-            // }
-
+            if (is_rampa && h_347b0010 && h_347b0011) {            
+                elite_ready = true;    
+                green = 50;
+                red = 0;
+                elite_send(0x50, 0x00);
+                if(found_xcadey && !xcadey_open_started) {
+                    xcadey_open_started = true;
+                    esp_ble_gattc_open(gattc_if_global, xcadey_addr, xcadey_addr_type, true);
+                }
+            }
             free(chars);
         }
         break;
-
         case ESP_GATTC_NOTIFY_EVT:
-        printf("notify, handle %d\n",param->notify.handle);
+            // printf("notify, handle %d\n",param->notify.handle);
             if (param->notify.handle == xcadey_power_handle) {
-                uint16_t xcadey_cadence = 0;
-                uint16_t xcadey_power = param->notify.value[2] | (param->notify.value[3] << 8);
-printf("power %d\n", xcadey_power);
+                static uint16_t xcadey_cadence = 0;
+                static uint16_t xcadey_power = 0;
+                uint16_t new_power = param->notify.value[2] | (param->notify.value[3] << 8);
+                xcadey_power = (xcadey_power * 3 + new_power) / 4;
+
                 static uint8_t last_rev = 0;
                 static uint16_t last_evt = 0;
-
                 uint8_t rev = param->notify.value[5];
-
                 uint16_t evt = param->notify.value[7] | (param->notify.value[8] << 8);
 
                 if (last_evt) {
                     uint8_t d_rev = rev - last_rev;
                     uint16_t d_evt = evt - last_evt;
-
-                    if (d_evt) {
-                        float cadence =
-                            (float)d_rev *
-                            60.0f *
-                            1024.0f /
-                            (float)d_evt;
-
-                        xcadey_cadence = (uint16_t)(cadence + 0.5f);
+                    // if (d_evt) {
+                    //     float cadence =(float)d_rev * 60.0f * 1024.0f / (float)d_evt;
+                    //     xcadey_cadence = (uint16_t)(cadence + 0.5f);
+                    // }
+                    if (d_rev > 0 && d_evt > 0) {
+                        float cadence =(float)d_rev * 60.0f * 1024.0f / (float)d_evt;
+                        if (cadence > 10 && cadence < 200) {
+                            uint16_t new_cadence = (uint16_t)(cadence + 0.5f);                                                
+                            xcadey_cadence = (xcadey_cadence * 3 + new_cadence) / 4;
+                        }
                     }
                 }
                 last_rev = rev;
