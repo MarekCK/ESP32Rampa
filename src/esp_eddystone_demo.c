@@ -4,7 +4,7 @@
  *
  * SPDX-License-Identifier: Unlicense OR CC0-1.0
  */
-
+// https://github.com/Berg0162
 
 /****************************************************************************
 *
@@ -813,30 +813,53 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
                 static uint16_t xcadey_cadence = 0;
                 static uint16_t xcadey_power = 0;
                 uint16_t new_power = param->notify.value[2] | (param->notify.value[3] << 8);
-                xcadey_power = (xcadey_power * 3 + new_power) / 4;
+                xcadey_power = (xcadey_power + new_power) / 2;
 
-                static uint8_t last_rev = 0;
-                static uint16_t last_evt = 0;
-                uint8_t rev = param->notify.value[5];
-                uint16_t evt = param->notify.value[7] | (param->notify.value[8] << 8);
+// uint16_t flags =
+//     param->notify.value[0] |
+//     (param->notify.value[1] << 8);
 
-                if (last_evt) {
-                    uint8_t d_rev = rev - last_rev;
-                    uint16_t d_evt = evt - last_evt;
-                    // if (d_evt) {
-                    //     float cadence =(float)d_rev * 60.0f * 1024.0f / (float)d_evt;
-                    //     xcadey_cadence = (uint16_t)(cadence + 0.5f);
-                    // }
-                    if (d_rev > 0 && d_evt > 0) {
-                        float cadence =(float)d_rev * 60.0f * 1024.0f / (float)d_evt;
-                        if (cadence > 10 && cadence < 200) {
-                            uint16_t new_cadence = (uint16_t)(cadence + 0.5f);                                                
-                            xcadey_cadence = (xcadey_cadence * 3 + new_cadence) / 4;
+// printf("FLAGS=%04X LEN=%u\n",
+//        flags,
+//        param->notify.value_len);
+
+// for(int i = 0; i < param->notify.value_len; i++)
+// {
+//     printf("[%d]=%02X ", i,
+//            param->notify.value[i]);
+// }
+// printf("\n");
+
+                // if(flags & 0x0002) {
+                    static uint16_t last_rev = 0;
+                    static uint16_t last_evt = 0;
+
+                    uint16_t rev = param->notify.value[7] | (param->notify.value[8] << 8);
+                    uint16_t evt = param->notify.value[9] | (param->notify.value[10] << 8);
+
+                    // uint8_t rev = param->notify.value[5];
+                    // uint16_t evt = param->notify.value[7] | (param->notify.value[8] << 8);
+
+                    if (last_evt) {
+                        uint16_t d_rev = rev - last_rev;
+                        uint16_t d_evt = evt - last_evt;
+                        // if (d_evt) {
+                        //     float cadence =(float)d_rev * 60.0f * 1024.0f / (float)d_evt;
+                        //     xcadey_cadence = (uint16_t)(cadence + 0.5f);
+                        // }
+                        if (d_evt) { //(d_rev > 0 && d_evt > 0) {
+                            float cadence =(float)d_rev * 60.0f * 1024.0f / (float)d_evt;
+                            // if (cadence > 10 && cadence < 200) {
+                                // uint16_t new_cadence = (uint16_t)(cadence + 0.5f);                                                
+                                xcadey_cadence = (uint16_t)(cadence + 0.5f);
+                                // (xcadey_cadence  + new_cadence) / 2;
+                                printf("\ncadence %d\n", xcadey_cadence);
+                            // }
                         }
                     }
-                }
-                last_rev = rev;
-                last_evt = evt;
+                    last_rev = rev;
+                    last_evt = evt;
+                // }
                 rouvy_send(xcadey_power, xcadey_cadence);
             }
         break;
