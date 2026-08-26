@@ -503,11 +503,19 @@ static esp_ble_adv_data_t adv_data = {
             ESP_BLE_ADV_FLAG_BREDR_NOT_SPT,
 };
 
-void ledTask(void *arg) {
+typedef struct {
+    uint16_t power;
+    uint16_t cadence;
+    TickType_t timestamp;
+} trainer_data_t;
+
+static trainer_data_t trainer;
+
+void LEDTask(void *arg) {
     while (1) {
         led_strip_set_pixel(led, 0, red, green, blue);
         led_strip_refresh(led);
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(200));
     }
 }
 
@@ -559,6 +567,27 @@ void rouvy_send(uint16_t xpower, uint16_t xcadence) {
         sizeof(training_status),
         training_status,
         false);
+}
+
+void FTMSTask(void *) {
+    while(1) {
+        TickType_t age = xTaskGetTickCount() - trainer.timestamp;
+
+        uint16_t power;
+        uint16_t cadence;
+
+        if(age > pdMS_TO_TICKS(2500)) {
+            power = 0;
+            cadence = 0;
+        }
+        else {
+            power = trainer.power;
+            cadence = trainer.cadence;
+        }
+        rouvy_send(power, cadence);
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
+
 }
 
 void esp_eddystone_appRegister(void) {
@@ -810,57 +839,31 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
         case ESP_GATTC_NOTIFY_EVT:
             // printf("notify, handle %d\n",param->notify.handle);
             if (param->notify.handle == xcadey_power_handle) {
+
                 static uint16_t xcadey_cadence = 0;
                 static uint16_t xcadey_power = 0;
-                uint16_t new_power = param->notify.value[2] | (param->notify.value[3] << 8);
-                xcadey_power = (xcadey_power + new_power) / 2;
+                static uint16_t last_rev = 0;
+                static uint16_t last_evt = 0;
 
-// uint16_t flags =
-//     param->notify.value[0] |
-//     (param->notify.value[1] << 8);
+                xcadey_power = param->notify.value[2] | (param->notify.value[3] << 8);
 
-// printf("FLAGS=%04X LEN=%u\n",
-//        flags,
-//        param->notify.value_len);
+                uint16_t rev = param->notify.value[7] | (param->notify.value[8] << 8);                
+                uint16_t evt = param->notify.value[9] | (param->notify.value[10] << 8);
 
-// for(int i = 0; i < param->notify.value_len; i++)
-// {
-//     printf("[%d]=%02X ", i,
-//            param->notify.value[i]);
-// }
-// printf("\n");
-
-                // if(flags & 0x0002) {
-                    static uint16_t last_rev = 0;
-                    static uint16_t last_evt = 0;
-
-                    uint16_t rev = param->notify.value[7] | (param->notify.value[8] << 8);
-                    uint16_t evt = param->notify.value[9] | (param->notify.value[10] << 8);
-
-                    // uint8_t rev = param->notify.value[5];
-                    // uint16_t evt = param->notify.value[7] | (param->notify.value[8] << 8);
-
-                    if (last_evt) {
-                        uint16_t d_rev = rev - last_rev;
-                        uint16_t d_evt = evt - last_evt;
-                        // if (d_evt) {
-                        //     float cadence =(float)d_rev * 60.0f * 1024.0f / (float)d_evt;
-                        //     xcadey_cadence = (uint16_t)(cadence + 0.5f);
-                        // }
-                        if (d_evt) { //(d_rev > 0 && d_evt > 0) {
-                            float cadence =(float)d_rev * 60.0f * 1024.0f / (float)d_evt;
-                            // if (cadence > 10 && cadence < 200) {
-                                // uint16_t new_cadence = (uint16_t)(cadence + 0.5f);                                                
-                                xcadey_cadence = (uint16_t)(cadence + 0.5f);
-                                // (xcadey_cadence  + new_cadence) / 2;
-                                printf("\ncadence %d\n", xcadey_cadence);
-                            // }
-                        }
+                if (last_evt) {
+                    uint16_t d_rev = rev - last_rev;
+                    uint16_t d_evt = evt - last_evt;
+                    if (d_evt) { //(d_rev > 0 && d_evt > 0) {
+                        float cadence =(float)d_rev * 60.0f * 1024.0f / (float)d_evt;
+                            xcadey_cadence = (uint16_t)(cadence + 0.5f);
+                            printf("\ncadence %d\n", xcadey_cadence);
                     }
-                    last_rev = rev;
-                    last_evt = evt;
-                // }
-                rouvy_send(xcadey_power, xcadey_cadence);
+                }
+                last_rev = rev;
+                last_evt = evt;
+                trainer.power = xcadey_power;
+                trainer.cadence = xcadey_cadence;
+                trainer.timestamp = xTaskGetTickCount();
             }
         break;
         case ESP_GATTC_DISCONNECT_EVT:
@@ -1058,8 +1061,9 @@ void app_main(void) {
     gpio_config(&io_cfg);
     
     ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led));
-    xTaskCreate(ledTask, "LED", 4096, NULL, 5, NULL);
+    xTaskCreate(LEDTask, "LED", 4096, NULL, 5, NULL);
     vTaskDelay(pdMS_TO_TICKS(1000));
+    xTaskCreate(FTMSTask, "FTMS", 4096, NULL, 5, NULL);
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
