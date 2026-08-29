@@ -189,14 +189,18 @@ static uint16_t rampa_service_start = 0;
 static uint16_t rampa_service_end = 0;
 static uint16_t xcadey_service_start = 0;
 static uint16_t xcadey_service_end = 0;
+static uint16_t polar_service_start = 0;
+static uint16_t polar_service_end = 0;
 
 static uint16_t h_347b0010 = 0;
 static uint16_t h_347b0011 = 0;
 
 static uint16_t xcadey_power_handle = 0;
+static uint16_t polar_hr_handle = 0;
 
 static uint16_t rampa_conn_id = 0;
 static uint16_t xcadey_conn_id = 0;
+static uint16_t polar_conn_id = 0;
 static esp_gatt_if_t gattc_if_global = 0;
 
 // volatile uint16_t xcadey_power = 0;
@@ -204,16 +208,19 @@ static esp_gatt_if_t gattc_if_global = 0;
 
 static bool found_rampa = false;
 static bool found_xcadey = false;
+static bool found_polar = false;
 
 static bool rampa_connected = false;
 static bool xcadey_connected = false;
+static bool polar_connected = false;
 
 static esp_bd_addr_t rampa_addr;
 static esp_bd_addr_t xcadey_addr;
+static esp_bd_addr_t polar_addr;
 
 static uint8_t rampa_addr_type;
 static uint8_t xcadey_addr_type;
-
+static uint8_t polar_addr_type;
 
 static uint16_t ftms_conn_id = 0;
 static esp_gatt_if_t ftms_gatts_if = 0;
@@ -646,10 +653,10 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
                             len = sizeof(devname)-1;
                         memcpy(devname, name, len);
                         devname[len] = 0;
-                        // printf("FOUND: %s\n", devname);
+                        printf("FOUND: %s\n", devname);
                     }
-
-                    //memcpy(devname, name, len);
+// Polar H10 53095F2F
+                    //memcpy(devname, name, len); 
                     //devname[len] = 0;                    
                     if (name && !found_rampa && len == 2 && name[0] == 'R' && name[1] == 'M') {
                         // printf("Rampa found!\n");
@@ -663,8 +670,13 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
                         xcadey_addr_type = scan_result->scan_rst.ble_addr_type;
                         found_xcadey = true;
                     }
-                    if (found_rampa && found_xcadey) {
-                        printf("Both devices found\n");
+                    if (!found_polar && strstr(devname, "Polar H10")) {
+                        memcpy(polar_addr, scan_result->scan_rst.bda, sizeof(esp_bd_addr_t));
+                        polar_addr_type = scan_result->scan_rst.ble_addr_type;
+                        found_polar = true;                        
+                    }
+                    if (found_rampa && found_xcadey && found_polar) {
+                        printf("Devices found\n");
                         esp_ble_gap_stop_scanning();
                     }                
                 break;                                
@@ -707,11 +719,15 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
                     xcadey_connected = true;
                     // printf("XCADEY CONNECTED\n");
                 }
-
+                if(memcmp(param->open.remote_bda, polar_addr, 6) == 0) {
+                    polar_conn_id = param->open.conn_id;
+                    polar_connected = true;
+                    printf("POLAR CONNECTED\n");
+                }
                 uint16_t conn_id = param->open.conn_id;
                 esp_ble_gattc_search_service(gattc_if, conn_id, NULL);
                 gattc_if_global = gattc_if;
-                // printf("OPEN OK conn_id=%u\n", conn_id);
+                printf("OPEN OK conn_id=%u\n", conn_id);
             }
         break;
         case ESP_GATTC_REG_FOR_NOTIFY_EVT:
@@ -770,6 +786,11 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
                 end_handle   = xcadey_service_end;
                 printf("SEARCH COMPLETE: XCADEY\n");
             }
+            else if (current_conn == polar_conn_id) {
+                start_handle = polar_service_start;
+                end_handle   = polar_service_end;
+                printf("SEARCH COMPLETE: POLAR\n");
+            }            
             else {
                 printf("Unknown conn_id=%u\n", current_conn);
                 break;
@@ -819,7 +840,7 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
                                     xcadey_addr,
                                     xcadey_power_handle);
                             printf("register notify err=%d\n", err);
-                        }
+                        }                        
                     }
                 }
             }
@@ -1006,8 +1027,11 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
                         red = 0;
                     }
                     uint16_t power = param->write.value[1] | (param->write.value[2] << 8);
-                    if (power < 0xa0) 
+                    if (power < 0xa0) {
+                        if (power < 0x78)
+                            power += 0x10;
                         power += 0x10;
+                    }
                     else
                         power += 0x05;
                     uint8_t byte_1 = power & 0xff;
