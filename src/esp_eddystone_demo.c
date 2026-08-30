@@ -516,7 +516,7 @@ typedef struct {
     TickType_t timestamp;
 } trainer_data_t;
 
-static trainer_data_t trainer;
+volatile trainer_data_t trainer;
 
 void LEDTask(void *arg) {
     while (1) {
@@ -653,7 +653,7 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
                             len = sizeof(devname)-1;
                         memcpy(devname, name, len);
                         devname[len] = 0;
-                        printf("FOUND: %s\n", devname);
+                        // printf("FOUND: %s\n", devname);
                     }
 // Polar H10 53095F2F
                     //memcpy(devname, name, len); 
@@ -664,7 +664,7 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
                         rampa_addr_type = scan_result->scan_rst.ble_addr_type;
                         found_rampa = true;
                     }
-                    if (!found_xcadey && strstr(devname, "XPOWER-L 12105")) {
+                    if (!found_xcadey && strstr(devname, "XPOWER-L")) {
                         // printf("XCadey found!\n");
                         memcpy(xcadey_addr, scan_result->scan_rst.bda, sizeof(esp_bd_addr_t));
                         xcadey_addr_type = scan_result->scan_rst.ble_addr_type;
@@ -675,7 +675,7 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
                         polar_addr_type = scan_result->scan_rst.ble_addr_type;
                         found_polar = true;                        
                     }
-                    if (found_rampa && found_xcadey && found_polar) {
+                    if (found_rampa && found_xcadey) {  // && found_polar
                         printf("Devices found\n");
                         esp_ble_gap_stop_scanning();
                     }                
