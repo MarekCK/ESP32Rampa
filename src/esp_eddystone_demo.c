@@ -793,12 +793,12 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
                 printf("Connecting Polar... status=%d\n", status);             
             }
             
-            // printf("Scan stopped\n");
+            printf("Scan stopped\n");
 
-            // if(found_rampa) {
-            //     printf("Connecting Rampa...\n");
-            //     esp_ble_gattc_open(gattc_if_global, rampa_addr, rampa_addr_type, true);
-            // }
+            if(found_rampa) {
+                printf("Connecting Rampa...\n");
+                esp_ble_gattc_open(gattc_if_global, rampa_addr, rampa_addr_type, true);
+            }
         break;      
         default:
             ;
@@ -906,18 +906,18 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
                 start_handle = rampa_service_start;
                 end_handle   = rampa_service_end;
                 is_rampa = true;
-                // printf("SEARCH COMPLETE: RAMPA\n");
+                printf("SEARCH COMPLETE: RAMPA\n");
             }
             else if (current_conn == xcadey_conn_id) {
                 start_handle = xcadey_service_start;
                 end_handle   = xcadey_service_end;
-                // printf("SEARCH COMPLETE: XCADEY\n");                                  
+                printf("SEARCH COMPLETE: XCADEY\n");                                  
             }
             else if (current_conn == polar_conn_id) {
                 start_handle = polar_service_start;
                 end_handle   = polar_service_end;
                 is_polar = true;
-                // printf("SEARCH COMPLETE: POLAR\n");
+                printf("SEARCH COMPLETE: POLAR\n");
             }                      
             else {
                 printf("Unknown conn_id=%u\n", current_conn);
@@ -948,11 +948,11 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
 
                         if (u[13] == 0x00 && u[12] == 0x10) {
                             h_347b0010 = chars[i].char_handle;
-                            // printf("347B0010 handle=%u\n", h_347b0010);
+                            printf("347B0010 handle=%u\n", h_347b0010);
                         }
                         if (u[13] == 0x00 && u[12] == 0x11) {
                             h_347b0011 = chars[i].char_handle;
-                            // printf("347B0011 handle=%u\n", h_347b0011);
+                            printf("347B0011 handle=%u\n", h_347b0011);
                         }
                     }
                 }
@@ -1110,10 +1110,10 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
 
     switch(event) {
         case ESP_GATTS_START_EVT:
-            // printf("SERVICE STARTED\n");
+            printf("SERVICE STARTED\n");
         break;        
         case ESP_GATTS_REG_EVT:
-            // printf("GATTS REG\n");
+            printf("GATTS REG\n");
             if (param->reg.status == ESP_GATT_OK) {
                 esp_ble_gatts_create_attr_tab(ftms_gatt_db, gatts_if, FTMS_IDX_NB, 0);
                 esp_ble_gatts_create_attr_tab(hr_gatt_db, gatts_if, HR_IDX_NB, 0);
@@ -1121,10 +1121,10 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
         break;
         case ESP_GATTS_CREAT_ATTR_TAB_EVT:
             printf("ATTR TAB num=%u\n",param->add_attr_tab.num_handle);
-            // memcpy(ftms_handle_table, param->add_attr_tab.handles, sizeof(ftms_handle_table));
-            // esp_ble_gatts_start_service(ftms_handle_table[IDX_SVC]);
-            // memcpy(hr_handle_table, param->add_attr_tab.handles, sizeof(hr_handle_table));
-            // esp_ble_gatts_start_service(hr_handle_table[HR_IDX_SVC]);
+            memcpy(ftms_handle_table, param->add_attr_tab.handles, sizeof(ftms_handle_table));
+            esp_ble_gatts_start_service(ftms_handle_table[IDX_SVC]);
+            memcpy(hr_handle_table, param->add_attr_tab.handles, sizeof(hr_handle_table));
+            esp_ble_gatts_start_service(hr_handle_table[HR_IDX_SVC]);
                         
             // printf("svc=%u\n", ftms_handle_table[IDX_SVC]);
             // printf("char=%u\n", ftms_handle_table[IDX_CHAR_VAL_FEATURE]);
@@ -1152,7 +1152,7 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
             ftms_gatts_if = gatts_if;
             ftms_connected = true;
 
-            // printf("FTMS client connected\n");
+            printf("FTMS client connected\n");
             esp_ble_gatts_send_indicate(
                 ftms_gatts_if,
                 ftms_conn_id,
@@ -1167,18 +1167,18 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
                 sizeof(hr_measurement),
                 hr_measurement,
                 false);                    
-            // printf("%02X:%02X:%02X:%02X:%02X:%02X\n",
-            //     param->connect.remote_bda[0],
-            //     param->connect.remote_bda[1],
-            //     param->connect.remote_bda[2],
-            //     param->connect.remote_bda[3],
-            //     param->connect.remote_bda[4],
-                // param->connect.remote_bda[5]);
+            printf("%02X:%02X:%02X:%02X:%02X:%02X\n",
+                param->connect.remote_bda[0],
+                param->connect.remote_bda[1],
+                param->connect.remote_bda[2],
+                param->connect.remote_bda[3],
+                param->connect.remote_bda[4],
+                param->connect.remote_bda[5]);
         break; 
         case ESP_GATTS_DISCONNECT_EVT:
             printf("GATTS DISCONNECT conn=%u\n", param->disconnect.conn_id);
             ftms_connected = false;
-            // printf("GATTS DISCONNECTED\n");
+            printf("GATTS DISCONNECTED\n");
         break;        
        
         case ESP_GATTS_WRITE_EVT:
