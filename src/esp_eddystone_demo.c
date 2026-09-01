@@ -22,7 +22,7 @@ Some info needed
 #include "driver/gpio.h"
 
 #define BOOT_PIN GPIO_NUM_9
-
+#define INVALID_CONN_ID 0xFFFF
 static const char* DEMO_TAG = "RAMPA";
 led_strip_handle_t led;
 led_strip_config_t strip_config = {.strip_gpio_num = GPIO_NUM_8, .max_leds = 1,};
@@ -65,7 +65,7 @@ const uint8_t elite_uuid[] = {
     0x01, 0x00, 0x7B, 0x34
 };
 
-
+static bool scan_stopped = false;
 static bool elite_ready = false;
 static bool ftms_cp_indications_enabled = false;
 //----------------------------------------------------------------
@@ -78,8 +78,11 @@ enum { IDX_SVC, IDX_CHAR_FEATURE, IDX_CHAR_VAL_FEATURE,
         IDX_CHAR_RESIST_RANGE, IDX_CHAR_VAL_RESIST_RANGE,
         IDX_CHAR_POWER_RANGE, IDX_CHAR_VAL_POWER_RANGE,
         IDX_CHAR_BIKE_DATA, IDX_CHAR_VAL_BIKE_DATA, IDX_CHAR_CFG_BIKE_DATA,
-        IDX_CHAR_CP, IDX_CHAR_VAL_CP, IDX_CHAR_CFG_CP, 
-        IDX_HR_SVC, IDX_HR_CHAR, IDX_HR_VAL, IDX_HR_CFG, FTMS_IDX_NB };
+        IDX_CHAR_CP, IDX_CHAR_VAL_CP, IDX_CHAR_CFG_CP, FTMS_IDX_NB
+        // HR_IDX_SVC, HR_IDX_CHAR, HR_IDX_VAL, HR_IDX_CFG, HR_IDX_NB
+     };
+
+enum { HR_IDX_SVC, HR_IDX_CHAR, HR_IDX_VAL, HR_IDX_CFG, HR_IDX_NB };
 
 static const uint16_t FTMS_SERVICE_UUID             = 0x1826;
 static const uint16_t FTMS_FEATURE_UUID             = 0x2ACC;
@@ -97,9 +100,11 @@ static const uint16_t HR_MEASUREMENT_UUID  = 0x2A37;
 static const uint8_t char_prop_read                 = ESP_GATT_CHAR_PROP_BIT_READ;
 static const uint8_t char_prop_notify               = ESP_GATT_CHAR_PROP_BIT_NOTIFY;
 static const uint16_t primary_service_uuid          = ESP_GATT_UUID_PRI_SERVICE;
+// static const uint16_t secondary_service_uuid        = ESP_GATT_UUID_SEC_SERVICE;
 static const uint16_t character_declaration_uuid    = ESP_GATT_UUID_CHAR_DECLARE;
 
 static uint16_t ftms_handle_table[FTMS_IDX_NB];
+static uint16_t hr_handle_table[HR_IDX_NB];
 
 static uint8_t training_status[] = {
     0x00,
@@ -208,9 +213,9 @@ static uint16_t h_347b0011 = 0;
 static uint16_t xcadey_power_handle = 0;
 static uint16_t polar_hr_handle = 0;
 
-static uint16_t rampa_conn_id = 0;
-static uint16_t xcadey_conn_id = 0;
-static uint16_t polar_conn_id = 0;
+static uint16_t rampa_conn_id = INVALID_CONN_ID;
+static uint16_t xcadey_conn_id = INVALID_CONN_ID;
+static uint16_t polar_conn_id = INVALID_CONN_ID;
 
 static esp_gatt_if_t gattc_if_global = 0;
 
@@ -233,13 +238,13 @@ static uint8_t rampa_addr_type;
 static uint8_t xcadey_addr_type;
 static uint8_t polar_addr_type;
 
-static uint16_t ftms_conn_id = 0;
+static uint16_t ftms_conn_id = INVALID_CONN_ID;
 static esp_gatt_if_t ftms_gatts_if = 0;
 static bool ftms_connected = false;
 
 static uint16_t polar_hr = 0;
 
-static const esp_gatts_attr_db_t gatt_db[FTMS_IDX_NB] = {
+static const esp_gatts_attr_db_t ftms_gatt_db[FTMS_IDX_NB] = {
     [IDX_SVC] =
     {{
         ESP_GATT_AUTO_RSP
@@ -511,7 +516,12 @@ static const esp_gatts_attr_db_t gatt_db[FTMS_IDX_NB] = {
     (uint8_t *)cp_ccc
 }},    
 
-[IDX_HR_SVC] =
+};
+
+
+static const esp_gatts_attr_db_t hr_gatt_db[HR_IDX_NB] = {
+
+[HR_IDX_SVC] =
 {{
     ESP_GATT_AUTO_RSP
 },{
@@ -523,7 +533,7 @@ static const esp_gatts_attr_db_t gatt_db[FTMS_IDX_NB] = {
     (uint8_t *)&HR_SERVICE_UUID
 }},
 
-[IDX_HR_CHAR] =
+[HR_IDX_CHAR] =
 {{
     ESP_GATT_AUTO_RSP
 },{
@@ -535,7 +545,7 @@ static const esp_gatts_attr_db_t gatt_db[FTMS_IDX_NB] = {
     (uint8_t *)&char_prop_notify_only
 }},
 
-[IDX_HR_VAL] =
+[HR_IDX_VAL] =
 {{
     ESP_GATT_AUTO_RSP
 },{
@@ -547,7 +557,7 @@ static const esp_gatts_attr_db_t gatt_db[FTMS_IDX_NB] = {
     hr_measurement
 }},
 
-[IDX_HR_CFG] =
+[HR_IDX_CFG] =
 {{
     ESP_GATT_AUTO_RSP
 },{
@@ -637,13 +647,13 @@ void rouvy_send(uint16_t xpower, uint16_t xcadence) {
 
     hr_measurement[1] = polar_hr;
 
-    printf("FTMS HR=%u\n", polar_hr);
+    // printf("FTMS HR=%u\n", polar_hr);
 
     if(hr_notify_enabled) {
         esp_ble_gatts_send_indicate(
             ftms_gatts_if,
             ftms_conn_id,
-            ftms_handle_table[IDX_HR_VAL],
+            hr_handle_table[HR_IDX_VAL],
             sizeof(hr_measurement),
             hr_measurement,
             false);
@@ -669,6 +679,17 @@ void FTMSTask(void *) {
         vTaskDelay(pdMS_TO_TICKS(200));
     }
 
+}
+
+void ScanTimeoutTask(void *arg)
+{
+    vTaskDelay(pdMS_TO_TICKS(60000));
+    if (!scan_stopped) {
+        scan_stopped = true;
+        printf("Scan timeout\n");
+        esp_ble_gap_stop_scanning();
+    }
+    vTaskDelete(NULL);
 }
 
 void esp_eddystone_appRegister(void) {
@@ -697,14 +718,15 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
 
     switch(event) {
         case ESP_GAP_BLE_ADV_DATA_SET_COMPLETE_EVT:
-            // printf("ADV configured\n");
+            printf("ADV configured\n");
             esp_ble_gap_start_advertising(&adv_params);
         break;        
         case ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT: 
             // printf("scan param set \n");
             // the unit of the duration is second, 0 means scan permanently
-            uint32_t duration = 0;
-            esp_ble_gap_start_scanning(duration);
+            esp_ble_gap_start_scanning(0);
+            scan_stopped = false;
+            xTaskCreate(ScanTimeoutTask, "scan_timeout", 2048, NULL, 5, NULL);
         break;        
         case ESP_GAP_BLE_SCAN_START_COMPLETE_EVT: 
             err = param->scan_start_cmpl.status;
@@ -729,9 +751,7 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
                         devname[len] = 0;
                         // printf("FOUND: %s\n", devname);
                     }
-// Polar H10 53095F2F
-                    //memcpy(devname, name, len); 
-                    //devname[len] = 0;                    
+                  
                     if (name && !found_rampa && len == 2 && name[0] == 'R' && name[1] == 'M') {
                         // printf("Rampa found!\n");
                         memcpy(rampa_addr, scan_result->scan_rst.bda, sizeof(esp_bd_addr_t));
@@ -748,12 +768,13 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
                         memcpy(polar_addr, scan_result->scan_rst.bda, sizeof(esp_bd_addr_t));
                         polar_addr_type = scan_result->scan_rst.ble_addr_type;
                         found_polar = true;     
-                        printf("Polar found\n");                   
+                        printf("Polar found\n");                  
                     }
-                    if (found_rampa && found_xcadey) {  // && found_polar
+                if (!scan_stopped && found_rampa && found_xcadey && found_polar) {
+                        scan_stopped = true;
                         printf("Devices found\n");
                         esp_ble_gap_stop_scanning();
-                    }                
+                }                
                 break;                                
                 default:
                 ;
@@ -765,12 +786,19 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
                 ESP_LOGE(DEMO_TAG,"Scan stop failed: %s", esp_err_to_name(err));
             else 
                 ESP_LOGI(DEMO_TAG,"Stop scan successfully");
-
-            // printf("Scan stopped\n");
-            if(found_rampa) {
-                printf("Connecting Rampa...\n");
-                esp_ble_gattc_open(gattc_if_global, rampa_addr, rampa_addr_type, true);
+/*polar connection*/
+            if(found_polar && !polar_open_started && !polar_connected) {
+                polar_open_started = true;
+                uint8_t status = esp_ble_gattc_open(gattc_if_global, polar_addr, polar_addr_type, true);
+                printf("Connecting Polar... status=%d\n", status);             
             }
+            
+            // printf("Scan stopped\n");
+
+            // if(found_rampa) {
+            //     printf("Connecting Rampa...\n");
+            //     esp_ble_gattc_open(gattc_if_global, rampa_addr, rampa_addr_type, true);
+            // }
         break;      
         default:
             ;
@@ -782,27 +810,27 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
 
     switch(event) {
         case ESP_GATTC_OPEN_EVT:
+        printf("OPEN status=%d conn_id=%u\n", param->open.status, param->open.conn_id);
             if (param->open.status == ESP_GATT_OK) {
                 printf("OPEN OK conn_id=%u\n", param->open.conn_id);
                 if(memcmp(param->open.remote_bda, rampa_addr, 6) == 0) {
                     rampa_conn_id = param->open.conn_id;
                     rampa_connected = true;
-                    // printf("RAMPA CONNECTED\n");
+                    printf("RAMPA CONNECTED\n");
                 }
                 if(memcmp(param->open.remote_bda, xcadey_addr, 6) == 0) {
                     xcadey_conn_id = param->open.conn_id;
                     xcadey_connected = true;
-                    // printf("XCADEY CONNECTED\n");
+                    printf("XCADEY CONNECTED\n");
                 }
                 if(memcmp(param->open.remote_bda, polar_addr, 6) == 0) {
                     polar_conn_id = param->open.conn_id;
                     polar_connected = true;
-                    printf("POLAR CONNECTED\n");
+                    printf("POLAR CONNECTED %u\n", param->open.conn_id);
                 }
                 uint16_t conn_id = param->open.conn_id;
                 esp_ble_gattc_search_service(gattc_if, conn_id, NULL);
                 gattc_if_global = gattc_if;
-                printf("OPEN OK conn_id=%u\n", conn_id);
             }
         break;
         case ESP_GATTC_REG_FOR_NOTIFY_EVT:
@@ -840,7 +868,7 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
             if (!descr)
                 break;
             esp_ble_gattc_get_all_descr(gattc_if, conn_id, char_handle, descr, &count, 0);   
-            bool xcadey_notify_ready = false; 
+            // bool xcadey_notify_ready = false; 
             for (int i = 0; i < count; i++) {
                 if (descr[i].uuid.len == ESP_UUID_LEN_16) {
                     // printf("DESCR UUID=%04X handle=%u\n", descr[i].uuid.uuid.uuid16, descr[i].handle);
@@ -855,48 +883,41 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
                             (uint8_t *)&notify_en,
                             ESP_GATT_WRITE_TYPE_RSP,
                             ESP_GATT_AUTH_REQ_NONE);
-                            if(char_handle == xcadey_power_handle)
-                                xcadey_notify_ready = true;
+                            // if(char_handle == xcadey_power_handle)
+                            //     xcadey_notify_ready = true;
                     }
                 }
             }
             free(descr);   
-            if(xcadey_notify_ready && found_polar && !polar_open_started && !polar_connected) {
-                polar_open_started = true;
-                printf("Connecting Polar...\n");
-                esp_ble_gattc_open(gattc_if_global, polar_addr, polar_addr_type, true);
-            }                                 
+            // if(xcadey_notify_ready && found_polar && !polar_open_started && !polar_connected) {
+            //     polar_open_started = true;
+                // printf("Connecting Polar...\n");
+                // esp_ble_gattc_open(gattc_if_global, polar_addr, polar_addr_type, true);
+            // }                                 
         break;
         case ESP_GATTC_SEARCH_CMPL_EVT: {
+            // printf("SEARCH COMPLETE status=%d conn_id=%u\n", param->search_cmpl.status, param->search_cmpl.conn_id);
             uint16_t current_conn = param->search_cmpl.conn_id;
             uint16_t start_handle = 0;
             uint16_t end_handle   = 0;
             bool is_rampa = false;
             bool is_polar = false;
-
             if (current_conn == rampa_conn_id) {
                 start_handle = rampa_service_start;
                 end_handle   = rampa_service_end;
                 is_rampa = true;
-                printf("SEARCH COMPLETE: RAMPA\n");
+                // printf("SEARCH COMPLETE: RAMPA\n");
             }
             else if (current_conn == xcadey_conn_id) {
                 start_handle = xcadey_service_start;
                 end_handle   = xcadey_service_end;
-                printf("SEARCH COMPLETE: XCADEY\n");    
-                // if(found_polar && !polar_open_started && !polar_connected) {
-                //     polar_open_started = true;
-
-                //     printf("Connecting Polar...\n");
-
-                //     esp_ble_gattc_open(gattc_if_global, polar_addr, polar_addr_type, true);
-                // }                                  
+                // printf("SEARCH COMPLETE: XCADEY\n");                                  
             }
             else if (current_conn == polar_conn_id) {
                 start_handle = polar_service_start;
                 end_handle   = polar_service_end;
                 is_polar = true;
-                printf("SEARCH COMPLETE: POLAR\n");
+                // printf("SEARCH COMPLETE: POLAR\n");
             }                      
             else {
                 printf("Unknown conn_id=%u\n", current_conn);
@@ -936,17 +957,18 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
                     }
                 }
                 else if (is_polar) {
-                                        if (chars[i].uuid.len == ESP_UUID_LEN_16) {
-                        uint16_t uuid16 = chars[i].uuid.uuid.uuid16;
-                        // printf("Polar CHAR UUID=%04X handle=%u\n", uuid16, chars[i].char_handle);
-                        if (uuid16 == 0x2A37) {
-                            polar_hr_handle = chars[i].char_handle;
-                            printf("POLAR handle=%u\n", polar_hr_handle);
-                             esp_err_t err = esp_ble_gattc_register_for_notify(
-                                    gattc_if,
-                                    polar_addr,
-                                    polar_hr_handle);
-                            printf("register notify err=%d\n", err);
+                        if (chars[i].uuid.len == ESP_UUID_LEN_16) {
+                            uint16_t uuid16 = chars[i].uuid.uuid.uuid16;
+                            // printf("Polar CHAR UUID=%04X handle=%u\n", uuid16, chars[i].char_handle);
+                            if (uuid16 == 0x2A37) {
+                                polar_hr_handle = chars[i].char_handle;
+                                printf("POLAR handle=%u\n", polar_hr_handle);
+                                // esp_err_t err = 
+                                esp_ble_gattc_register_for_notify(
+                                        gattc_if,
+                                        polar_addr,
+                                        polar_hr_handle);
+                                // printf("register notify err=%d\n", err);
                         }                        
                     }
                 }
@@ -957,11 +979,12 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
                         if (uuid16 == 0x2A63) {
                             xcadey_power_handle = chars[i].char_handle;
                             printf("CYCLING POWER handle=%u\n", xcadey_power_handle);
-                             esp_err_t err = esp_ble_gattc_register_for_notify(
+                             // esp_err_t err = 
+                             esp_ble_gattc_register_for_notify(
                                     gattc_if,
                                     xcadey_addr,
                                     xcadey_power_handle);
-                            printf("register notify err=%d\n", err);
+                            // printf("register notify err=%d\n", err);
                         }                        
                     }
                 }
@@ -989,7 +1012,7 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
                 else {
                     polar_hr = param->notify.value[1];
                 }
-                printf("HR=%u\n", polar_hr);
+                printf("HR=%u\r", polar_hr);
                 hr_measurement[1] = polar_hr;
             }
             if (param->notify.handle == xcadey_power_handle) {
@@ -1000,6 +1023,7 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
                 static uint16_t last_evt = 0;
 
                 xcadey_power = param->notify.value[2] | (param->notify.value[3] << 8);
+                printf("XCADEY POWER=%u\n", xcadey_power);
 
                 uint16_t rev = param->notify.value[7] | (param->notify.value[8] << 8);                
                 uint16_t evt = param->notify.value[9] | (param->notify.value[10] << 8);
@@ -1010,7 +1034,7 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
                     if (d_evt) { //(d_rev > 0 && d_evt > 0) {
                         float cadence =(float)d_rev * 60.0f * 1024.0f / (float)d_evt;
                             xcadey_cadence = (uint16_t)(cadence + 0.5f);
-                            // printf("\ncadence %d\n", xcadey_cadence);
+                            printf("\ncadence %d\n", xcadey_cadence);
                     }
                 }
                 last_rev = rev;
@@ -1021,6 +1045,11 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
             }
         break;
         case ESP_GATTC_DISCONNECT_EVT:
+            printf("GATTC DISCONNECT conn=%u reason=%u\n",
+                   param->disconnect.conn_id,
+                  param->disconnect.reason);
+
+        
             // printf("RAMPA DISCONNECTED\n");
             red = 50; green = 0; blue = 0;  
             elite_ready = false;
@@ -1028,13 +1057,14 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
             h_347b0011 = 0;           
         break;
         case ESP_GATTC_REG_EVT:
-            // printf("REGISTER OK IF=%d\n", gattc_if);
+            printf("REGISTER OK IF=%d\n", gattc_if);
             gattc_if_global = gattc_if;
         break;            
         case ESP_GATTC_CONNECT_EVT:
-            // printf("GATTC CONNECTED!\n");        
+            printf("GATTC CONNECTED!\n");        
         break;
         case ESP_GATTC_SEARCH_RES_EVT:
+            // printf("SEARCH RESULT conn_id=%u\n", param->search_res.conn_id);
             if(param->search_res.conn_id == rampa_conn_id)
             {
                 if (param->search_res.srvc_id.uuid.len == ESP_UUID_LEN_128) {
@@ -1042,7 +1072,7 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
                     if(memcmp(u, elite_uuid, 16) == 0) {
                         rampa_service_start = param->search_res.start_handle;
                         rampa_service_end = param->search_res.end_handle;
-                        // printf("RAMPA SERVICE %u-%u\n", rampa_service_start, rampa_service_end);
+                        printf("RAMPA SERVICE %u-%u\n", rampa_service_start, rampa_service_end);
                     }
                 }
             }
@@ -1067,7 +1097,6 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
                     }
                     uint16_t uuid16 = param->search_res.srvc_id.uuid.uuid.uuid16;
                     printf("Polar UUID16=%04X\n", uuid16);
-                    printf("service found");
                 }
             }                
         break;
@@ -1085,21 +1114,40 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
         break;        
         case ESP_GATTS_REG_EVT:
             // printf("GATTS REG\n");
-            if(param->reg.status == ESP_GATT_OK) 
-                esp_ble_gatts_create_attr_tab(gatt_db, gatts_if, FTMS_IDX_NB, 0);
+            if (param->reg.status == ESP_GATT_OK) {
+                esp_ble_gatts_create_attr_tab(ftms_gatt_db, gatts_if, FTMS_IDX_NB, 0);
+                esp_ble_gatts_create_attr_tab(hr_gatt_db, gatts_if, HR_IDX_NB, 0);
+            }
         break;
         case ESP_GATTS_CREAT_ATTR_TAB_EVT:
-            memcpy(ftms_handle_table, param->add_attr_tab.handles, sizeof(ftms_handle_table));
-            esp_ble_gatts_start_service(ftms_handle_table[IDX_SVC]);
+            printf("ATTR TAB num=%u\n",param->add_attr_tab.num_handle);
+            // memcpy(ftms_handle_table, param->add_attr_tab.handles, sizeof(ftms_handle_table));
+            // esp_ble_gatts_start_service(ftms_handle_table[IDX_SVC]);
+            // memcpy(hr_handle_table, param->add_attr_tab.handles, sizeof(hr_handle_table));
+            // esp_ble_gatts_start_service(hr_handle_table[HR_IDX_SVC]);
+                        
             // printf("svc=%u\n", ftms_handle_table[IDX_SVC]);
             // printf("char=%u\n", ftms_handle_table[IDX_CHAR_VAL_FEATURE]);
             // printf("ATTR TABLE CREATED\n");
             // printf("svc=%u\n", ftms_handle_table[IDX_SVC]);
             // printf("feature=%u\n", ftms_handle_table[IDX_CHAR_VAL_FEATURE]);
             // printf("bike=%u\n", ftms_handle_table[IDX_CHAR_VAL_BIKE_DATA]);
-            // printf("cp=%u\n", ftms_handle_table[IDX_CHAR_VAL_CP]);              
+            // printf("cp=%u\n", ftms_handle_table[IDX_CHAR_VAL_CP]);      
+ 
+
+            if(param->add_attr_tab.num_handle == FTMS_IDX_NB) {
+                memcpy(ftms_handle_table, param->add_attr_tab.handles, sizeof(ftms_handle_table));
+                esp_ble_gatts_start_service(ftms_handle_table[IDX_SVC]);
+                printf("FTMS START\n");
+            }
+            else if(param->add_attr_tab.num_handle == HR_IDX_NB) {
+                memcpy(hr_handle_table, param->add_attr_tab.handles, sizeof(hr_handle_table));
+                esp_ble_gatts_start_service(hr_handle_table[HR_IDX_SVC]);
+                printf("HR START\n");
+            }
         break;
         case ESP_GATTS_CONNECT_EVT:
+            printf("FTMS CONNECT conn=%u\n", param->connect.conn_id);
             ftms_conn_id = param->connect.conn_id;
             ftms_gatts_if = gatts_if;
             ftms_connected = true;
@@ -1112,7 +1160,13 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
                 sizeof(bike_data),
                 bike_data,
                 false);
-                    
+            esp_ble_gatts_send_indicate(
+                ftms_gatts_if,
+                ftms_conn_id,
+                hr_handle_table[HR_IDX_VAL],
+                sizeof(hr_measurement),
+                hr_measurement,
+                false);                    
             // printf("%02X:%02X:%02X:%02X:%02X:%02X\n",
             //     param->connect.remote_bda[0],
             //     param->connect.remote_bda[1],
@@ -1122,6 +1176,7 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
                 // param->connect.remote_bda[5]);
         break; 
         case ESP_GATTS_DISCONNECT_EVT:
+            printf("GATTS DISCONNECT conn=%u\n", param->disconnect.conn_id);
             ftms_connected = false;
             // printf("GATTS DISCONNECTED\n");
         break;        
@@ -1134,7 +1189,7 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
                 ftms_cp_indications_enabled = (cccd & 0x0002);
                 printf("CP CCCD=%04X\n", cccd);
             }
-            if(param->write.handle == ftms_handle_table[IDX_HR_CFG]) {
+            if(param->write.handle == hr_handle_table[HR_IDX_CFG]) {
                 uint16_t cccd = param->write.value[0] | (param->write.value[1] << 8);
                 hr_notify_enabled = (cccd & 0x0001);
             }           
