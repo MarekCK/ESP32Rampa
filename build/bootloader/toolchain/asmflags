@@ -1,0 +1,2 @@
+"-specs=/home/marek/Dokumenty/PlatformIO/Projects/ESP32Rampa/build/bootloader/specs/picolibc.specs"
+-march=rv32imac_zicsr_zifencei_zaamo_zalrsc

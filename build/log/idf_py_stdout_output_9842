@@ -1,3 +1,0 @@
-Command: cmake -G Ninja -B /home/marek/Dokumenty/PlatformIO/Projects/ESP32Rampa/build -DPYTHON_DEPS_CHECKED=1 -DPYTHON=/home/marek/.espressif/tools/python/v6.1/venv/bin/python -DESP_PLATFORM=1 -DCCACHE_ENABLE=False /home/marek/Dokumenty/PlatformIO/Projects/ESP32Rampa
--- Found Git: /usr/bin/git (found version "2.53.0")
--- Configuring incomplete, errors occurred!

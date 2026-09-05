@@ -1,0 +1,2 @@
+source /home/marek/Dokumenty/PlatformIO/Projects/ESP32Rampa/build/bootloader/gdbinit/symbols
+source /home/marek/Dokumenty/PlatformIO/Projects/ESP32Rampa/build/bootloader/gdbinit/connect

@@ -140,10 +140,22 @@ static const uint8_t power_range[] =
     0x01, 0x00      // step = 1 W
 };
 
+// static const uint8_t feature_value[8] =
+// {
+//     0x82, 0x40, 0x00, 0x00,
+//     0x0c, 0x00, 0x00, 0x00
+// };
+
 static const uint8_t feature_value[8] =
 {
+    // Fitness Machine Features
     0x82, 0x40, 0x00, 0x00,
-    0x0c, 0x00, 0x00, 0x00
+
+    // Target Setting Features
+    // bit 2  = resistance
+    // bit 3  = power
+    // bit 13 = indoor bike simulation
+    0x0C, 0x20, 0x00, 0x00
 };
 
 static uint8_t bike_data[12] =
@@ -156,15 +168,15 @@ static uint8_t bike_data[12] =
     0x00, 0x00
 };
 
-static uint8_t adv_service_uuid[16] = {
-    0xFB, 0x34, 0x9B, 0x5F,
-    0x80, 0x00,
-    0x00, 0x80,
-    0x00, 0x10,
-    0x00, 0x00,
-    0x26, 0x18,
-    0x00, 0x00
-};
+// static uint8_t adv_service_uuid[16] = {
+//     0xFB, 0x34, 0x9B, 0x5F,
+//     0x80, 0x00,
+//     0x00, 0x80,
+//     0x00, 0x10,
+//     0x00, 0x00,
+//     0x26, 0x18,
+//     0x00, 0x00
+// };
 
 static uint8_t hr_measurement[2] = {
     0x00, // flags
@@ -212,6 +224,8 @@ static uint16_t h_347b0011 = 0;
 
 static uint16_t xcadey_power_handle = 0;
 static uint16_t polar_hr_handle = 0;
+static uint16_t xcadey_cccd_handle = 0;
+// static uint16_t xcadey_cp_handle = 0;
 
 static uint16_t rampa_conn_id = INVALID_CONN_ID;
 static uint16_t xcadey_conn_id = INVALID_CONN_ID;
@@ -219,12 +233,19 @@ static uint16_t polar_conn_id = INVALID_CONN_ID;
 
 static esp_gatt_if_t gattc_if_global = 0;
 
+static bool ftms_bike_notify_enabled = false;
+static bool ftms_training_notify_enabled = false;
+static bool ftms_status_notify_enabled = false;
+// static bool ftms_cp_indications_enabled = false;
 
 static bool found_rampa = false;
+static bool rampa_open_started = false;
 static bool found_xcadey = false;
 static bool found_polar = false;
+static bool ftms_started = false;
+// static bool polar_open_started = false;
 
-static bool hr_notify_enabled = false;
+// static bool hr_notify_enabled = false;
 
 static bool rampa_connected = false;
 static bool xcadey_connected = false;
@@ -570,14 +591,32 @@ static const esp_gatts_attr_db_t hr_gatt_db[HR_IDX_NB] = {
 }},
 };
 
-static esp_ble_adv_data_t adv_data = {
-    .set_scan_rsp = false,
-    .include_name = false,
-    .include_txpower = false,
-    .service_uuid_len = 16, //sizeof(adv_service_uuid), // sizeof(FTMS_SERVICE_UUID),
-    .p_service_uuid = adv_service_uuid,
-    .flag = ESP_BLE_ADV_FLAG_GEN_DISC |
-            ESP_BLE_ADV_FLAG_BREDR_NOT_SPT,
+// static esp_ble_adv_data_t adv_data = {
+//     .set_scan_rsp = false,
+//     .include_name = false,
+//     .include_txpower = false,
+//     .service_uuid_len = 16, //sizeof(adv_service_uuid), // sizeof(FTMS_SERVICE_UUID),
+//     .p_service_uuid = adv_service_uuid,
+//     .flag = ESP_BLE_ADV_FLAG_GEN_DISC |
+//             ESP_BLE_ADV_FLAG_BREDR_NOT_SPT,
+// };
+
+static uint8_t raw_adv_data[] = {
+
+    // Flags
+    0x02,               // długość
+    0x01,               // Flags
+    0x06,               // General Discoverable + BR/EDR not supported
+
+    // Complete List of 16-bit Service UUIDs
+    0x03,               // długość: type + 2 bajty UUID
+    0x03,               // Complete List of 16-bit Service Class UUIDs
+    0x26, 0x18,         // FTMS = 0x1826
+
+    // Complete Local Name "ESP32-FTMS"
+    0x0B,               // 1 byte type + 10 znaków
+    0x09,               // Complete Local Name
+    'E','S','P','3','2','-','F','T','M','S'
 };
 
 typedef struct {
@@ -613,52 +652,95 @@ static void elite_send(uint8_t b1, uint8_t b2) {
         ESP_GATT_AUTH_REQ_NONE);
 }
 
-void rouvy_send(uint16_t xpower, uint16_t xcadence) {
-
-
+void rouvy_send(uint16_t xpower, uint16_t xcadence)
+{
     if (!ftms_connected)
         return;
+
+    if (!ftms_started)
+        return;
+
+    if (!ftms_bike_notify_enabled)
+        return;
+
     bike_data[0] = 0x64;
     bike_data[1] = 0x02;
+
     xcadence *= 2;
+
     bike_data[4] = xcadence & 0xff;
     bike_data[5] = xcadence >> 8;
+
     bike_data[8] = xpower & 0xff;
     bike_data[9] = xpower >> 8;
 
-    //esp_err_t err = 
-    esp_ble_gatts_send_indicate(
-        ftms_gatts_if, 
-        ftms_conn_id, 
-        ftms_handle_table[IDX_CHAR_VAL_BIKE_DATA], 
-        sizeof(bike_data), 
-        bike_data, 
-        false);
-    training_status[0] = 0x00;
-    training_status[1] = 0x0c;   // Running
-
-    esp_ble_gatts_send_indicate(
+    esp_err_t err = esp_ble_gatts_send_indicate(
         ftms_gatts_if,
         ftms_conn_id,
-        ftms_handle_table[IDX_CHAR_VAL_TRAINING],
-        sizeof(training_status),
-        training_status,
-        false);
+        ftms_handle_table[IDX_CHAR_VAL_BIKE_DATA],
+        sizeof(bike_data),
+        bike_data,
+        false
+    );
 
-    hr_measurement[1] = polar_hr;
-
-    // printf("FTMS HR=%u\n", polar_hr);
-
-    if(hr_notify_enabled) {
-        esp_ble_gatts_send_indicate(
-            ftms_gatts_if,
-            ftms_conn_id,
-            hr_handle_table[HR_IDX_VAL],
-            sizeof(hr_measurement),
-            hr_measurement,
-            false);
+    if (err != ESP_OK) {
+        printf("BIKE notify err=%d conn=%u if=%u started=%d notify=%d\n",
+               err,
+               ftms_conn_id,
+               ftms_gatts_if,
+               ftms_started,
+               ftms_bike_notify_enabled);
     }
 }
+
+
+
+// void rouvy_send(uint16_t xpower, uint16_t xcadence) {
+
+
+//     if (!ftms_connected)
+//         return;
+//     bike_data[0] = 0x64;
+//     bike_data[1] = 0x02;
+//     xcadence *= 2;
+//     bike_data[4] = xcadence & 0xff;
+//     bike_data[5] = xcadence >> 8;
+//     bike_data[8] = xpower & 0xff;
+//     bike_data[9] = xpower >> 8;
+
+//     //esp_err_t err = 
+//     esp_ble_gatts_send_indicate(
+//         ftms_gatts_if, 
+//         ftms_conn_id, 
+//         ftms_handle_table[IDX_CHAR_VAL_BIKE_DATA], 
+//         sizeof(bike_data), 
+//         bike_data, 
+//         false);
+//     training_status[0] = 0x00;
+//     training_status[1] = 0x0c;   // Running
+
+//     esp_ble_gatts_send_indicate(
+//         ftms_gatts_if,
+//         ftms_conn_id,
+//         ftms_handle_table[IDX_CHAR_VAL_TRAINING],
+//         sizeof(training_status),
+//         training_status,
+//         false);
+
+//     hr_measurement[1] = polar_hr;
+
+//     // printf("FTMS HR=%u\n", polar_hr);
+
+//     if(hr_notify_enabled) {
+//         esp_ble_gatts_send_indicate(
+//             ftms_gatts_if,
+//             ftms_conn_id,
+//             hr_handle_table[HR_IDX_VAL],
+//             sizeof(hr_measurement),
+//             hr_measurement,
+//             false);
+//     }
+// }
 
 void FTMSTask(void *) {
     while(1) {
@@ -713,14 +795,27 @@ void esp_eddystone_init(void) {
 
 static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* param) {
 
-    esp_err_t err;
+    // esp_err_t err;
     uint8_t len = 0;
 
     switch(event) {
-        case ESP_GAP_BLE_ADV_DATA_SET_COMPLETE_EVT:
-            printf("ADV configured\n");
-            esp_ble_gap_start_advertising(&adv_params);
-        break;        
+case ESP_GAP_BLE_ADV_DATA_RAW_SET_COMPLETE_EVT:
+
+    printf("ADV RAW configured status=%d\n",
+           param->adv_data_raw_cmpl.status);
+
+    esp_err_t err =
+        esp_ble_gap_start_advertising(&adv_params);
+
+    printf("Advertising start: %s\n",
+           esp_err_to_name(err));
+
+break;
+        
+        // case ESP_GAP_BLE_ADV_DATA_SET_COMPLETE_EVT:
+        //     printf("ADV configured\n");
+        //     esp_ble_gap_start_advertising(&adv_params);
+        // break;        
         case ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT: 
             // printf("scan param set \n");
             // the unit of the duration is second, 0 means scan permanently
@@ -782,23 +877,37 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
             }
         break;
         case ESP_GAP_BLE_SCAN_STOP_COMPLETE_EVT:
-            if((err = param->scan_stop_cmpl.status) != ESP_BT_STATUS_SUCCESS) 
-                ESP_LOGE(DEMO_TAG,"Scan stop failed: %s", esp_err_to_name(err));
-            else 
-                ESP_LOGI(DEMO_TAG,"Stop scan successfully");
-/*polar connection*/
-            if(found_polar && !polar_open_started && !polar_connected) {
-                polar_open_started = true;
-                uint8_t status = esp_ble_gattc_open(gattc_if_global, polar_addr, polar_addr_type, true);
-                printf("Connecting Polar... status=%d\n", status);             
-            }
-            
-            printf("Scan stopped\n");
+if (found_rampa && !rampa_open_started) {
+    rampa_open_started = true;
 
-            if(found_rampa) {
-                printf("Connecting Rampa...\n");
-                esp_ble_gattc_open(gattc_if_global, rampa_addr, rampa_addr_type, true);
-            }
+    printf("Connecting Rampa...\n");
+
+    esp_ble_gattc_open(
+        gattc_if_global,
+        rampa_addr,
+        rampa_addr_type,
+        true
+    );
+}
+
+
+//             if((err = param->scan_stop_cmpl.status) != ESP_BT_STATUS_SUCCESS) 
+//                 ESP_LOGE(DEMO_TAG,"Scan stop failed: %s", esp_err_to_name(err));
+//             else 
+//                 ESP_LOGI(DEMO_TAG,"Stop scan successfully");
+// /*polar connection*/
+//             if(found_polar && !polar_open_started && !polar_connected) {
+//                 polar_open_started = true;
+//                 uint8_t status = esp_ble_gattc_open(gattc_if_global, polar_addr, polar_addr_type, true);
+//                 printf("Connecting Polar... status=%d\n", status);             
+//             }
+            
+//             printf("Scan stopped\n");
+
+//             if(found_rampa) {
+//                 printf("Connecting Rampa...\n");
+//                 esp_ble_gattc_open(gattc_if_global, rampa_addr, rampa_addr_type, true);
+//             }
         break;      
         default:
             ;
@@ -833,67 +942,129 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
                 gattc_if_global = gattc_if;
             }
         break;
-        case ESP_GATTC_REG_FOR_NOTIFY_EVT:
-            printf("REG_FOR_NOTIFY status=%d handle=%u\n", param->reg_for_notify.status, param->reg_for_notify.handle);
+case ESP_GATTC_REG_FOR_NOTIFY_EVT: {
 
-            uint16_t count = 0;
-            uint16_t char_handle = param->reg_for_notify.handle;
-            uint16_t conn_id;
-            uint16_t start_handle;
-            uint16_t end_handle;
+    printf("REG_FOR_NOTIFY status=%d handle=%u\n",
+           param->reg_for_notify.status,
+           param->reg_for_notify.handle);
 
-            if(char_handle == xcadey_power_handle) {
-                conn_id = xcadey_conn_id;
-                start_handle = xcadey_service_start;
-                end_handle = xcadey_service_end;
+    if (param->reg_for_notify.status != ESP_GATT_OK) {
+        break;
+    }
+
+    uint16_t count = 0;
+    uint16_t char_handle = param->reg_for_notify.handle;
+    uint16_t conn_id;
+    uint16_t start_handle;
+    uint16_t end_handle;
+
+    bool is_xcadey = false;
+    bool is_polar  = false;
+
+    if (char_handle == xcadey_power_handle) {
+
+        conn_id      = xcadey_conn_id;
+        start_handle = xcadey_service_start;
+        end_handle   = xcadey_service_end;
+        is_xcadey    = true;
+    }
+    else if (char_handle == polar_hr_handle) {
+
+        conn_id      = polar_conn_id;
+        start_handle = polar_service_start;
+        end_handle   = polar_service_end;
+        is_polar     = true;
+    }
+    else {
+        break;
+    }
+
+    esp_gatt_status_t st = esp_ble_gattc_get_attr_count(
+        gattc_if,
+        conn_id,
+        ESP_GATT_DB_DESCRIPTOR,
+        start_handle,
+        end_handle,
+        char_handle,
+        &count
+    );
+
+    if (st != ESP_GATT_OK || count == 0) {
+        printf("No descriptors for handle=%u status=%d count=%u\n",
+               char_handle, st, count);
+        break;
+    }
+
+    esp_gattc_descr_elem_t *descr =
+        malloc(sizeof(esp_gattc_descr_elem_t) * count);
+
+    if (!descr) {
+        break;
+    }
+
+    st = esp_ble_gattc_get_all_descr(
+        gattc_if,
+        conn_id,
+        char_handle,
+        descr,
+        &count,
+        0
+    );
+
+    if (st != ESP_GATT_OK) {
+        free(descr);
+        break;
+    }
+
+    for (int i = 0; i < count; i++) {
+
+        if (descr[i].uuid.len != ESP_UUID_LEN_16) {
+            continue;
+        }
+
+        if (descr[i].uuid.uuid.uuid16 ==
+            ESP_GATT_UUID_CHAR_CLIENT_CONFIG) {
+
+            printf("CCCD handle=%u conn=%u\n",
+                   descr[i].handle,
+                   conn_id);
+
+            /*
+             * Zapamiętujemy CCCD XCadey.
+             * Po WRITE_DESCR tego konkretnego CCCD
+             * uruchomimy Polara.
+             */
+            if (is_xcadey) {
+                xcadey_cccd_handle = descr[i].handle;
+                printf("XCADEY CCCD=%u\n",
+                       xcadey_cccd_handle);
             }
-            else if(char_handle == polar_hr_handle) {
-                conn_id = polar_conn_id;
-                start_handle = polar_service_start;
-                end_handle = polar_service_end;
-            }
-            else {
-                break;
-            }
-            esp_ble_gattc_get_attr_count(
+
+            uint16_t notify_en = 1;
+
+            esp_err_t err = esp_ble_gattc_write_char_descr(
                 gattc_if,
                 conn_id,
-                ESP_GATT_DB_DESCRIPTOR,
-                start_handle,
-                end_handle,
-                char_handle,
-                &count);
-            // printf("descriptor count=%u\n", count);
-            esp_gattc_descr_elem_t *descr = malloc(sizeof(esp_gattc_descr_elem_t) * count);
-            if (!descr)
-                break;
-            esp_ble_gattc_get_all_descr(gattc_if, conn_id, char_handle, descr, &count, 0);   
-            // bool xcadey_notify_ready = false; 
-            for (int i = 0; i < count; i++) {
-                if (descr[i].uuid.len == ESP_UUID_LEN_16) {
-                    // printf("DESCR UUID=%04X handle=%u\n", descr[i].uuid.uuid.uuid16, descr[i].handle);
-                    if (descr[i].uuid.uuid.uuid16 == ESP_GATT_UUID_CHAR_CLIENT_CONFIG) {
-                        // printf("CCCD=%u\n", descr[i].handle);
-                        uint16_t notify_en = 1;
-                        esp_ble_gattc_write_char_descr(
-                            gattc_if,
-                            conn_id,
-                            descr[i].handle,
-                            sizeof(notify_en),
-                            (uint8_t *)&notify_en,
-                            ESP_GATT_WRITE_TYPE_RSP,
-                            ESP_GATT_AUTH_REQ_NONE);
-                            // if(char_handle == xcadey_power_handle)
-                            //     xcadey_notify_ready = true;
-                    }
-                }
-            }
-            free(descr);   
-            // if(xcadey_notify_ready && found_polar && !polar_open_started && !polar_connected) {
-            //     polar_open_started = true;
-                // printf("Connecting Polar...\n");
-                // esp_ble_gattc_open(gattc_if_global, polar_addr, polar_addr_type, true);
-            // }                                 
+                descr[i].handle,
+                sizeof(notify_en),
+                (uint8_t *)&notify_en,
+                ESP_GATT_WRITE_TYPE_RSP,
+                ESP_GATT_AUTH_REQ_NONE
+            );
+
+            printf("%s CCCD write err=%d\n",
+                   is_xcadey ? "XCADEY" :
+                   is_polar  ? "POLAR" : "?",
+                   err);
+
+            break;
+        }
+    }
+
+    free(descr);
+
+    break;
+}                               
         break;
         case ESP_GATTC_SEARCH_CMPL_EVT: {
             // printf("SEARCH COMPLETE status=%d conn_id=%u\n", param->search_cmpl.status, param->search_cmpl.conn_id);
@@ -1044,18 +1215,126 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
                 trainer.timestamp = xTaskGetTickCount();
             }
         break;
-        case ESP_GATTC_DISCONNECT_EVT:
-            printf("GATTC DISCONNECT conn=%u reason=%u\n",
-                   param->disconnect.conn_id,
-                  param->disconnect.reason);
 
-        
-            // printf("RAMPA DISCONNECTED\n");
-            red = 50; green = 0; blue = 0;  
-            elite_ready = false;
-            h_347b0010 = 0;
-            h_347b0011 = 0;           
+case ESP_GATTC_WRITE_DESCR_EVT: {
+
+    printf("WRITE_DESCR status=%d conn=%u handle=%u\n",
+           param->write.status,
+           param->write.conn_id,
+           param->write.handle);
+
+    if (param->write.status != ESP_GATT_OK) {
+        printf("WRITE_DESCR failed\n");
         break;
+    }
+
+    /*
+     * XCadey ma już działające notifications.
+     * Dopiero teraz zaczynamy połączenie z Polarem.
+     */
+    if (param->write.conn_id == xcadey_conn_id &&
+        param->write.handle == xcadey_cccd_handle) {
+
+        printf("XCADEY READY\n");
+
+        // if (found_polar &&
+        //     !polar_open_started &&
+        //     !polar_connected) {
+
+        //     polar_open_started = true;
+
+        //     printf("Connecting Polar...\n");
+
+        //     esp_err_t err = esp_ble_gattc_open(
+        //         gattc_if_global,
+        //         polar_addr,
+        //         polar_addr_type,
+        //         true
+        //     );
+
+        //     printf("Connecting Polar... status=%d\n", err);
+
+        //     if (err != ESP_OK) {
+        //         polar_open_started = false;
+        //     }
+        // }
+    }
+
+    /*
+     * Dla Polara nic więcej nie otwieramy.
+     * Tylko informacyjnie potwierdzamy CCCD.
+     */
+    if (param->write.conn_id == polar_conn_id) {
+        printf("POLAR CCCD READY\n");
+    }
+
+    break;
+}
+case ESP_GATTC_DISCONNECT_EVT:
+
+    printf("GATTC DISCONNECT conn=%u reason=%u\n",
+           param->disconnect.conn_id,
+           param->disconnect.reason);
+
+    if (rampa_connected &&
+        param->disconnect.conn_id == rampa_conn_id) {
+
+        printf("RAMPA DISCONNECTED\n");
+
+        rampa_connected = false;
+        rampa_open_started = false;
+
+        elite_ready = false;
+
+        h_347b0010 = 0;
+        h_347b0011 = 0;
+
+        rampa_conn_id = INVALID_CONN_ID;
+
+        red = 50;
+        green = 0;
+        blue = 0;
+    }
+
+    else if (xcadey_connected &&
+             param->disconnect.conn_id == xcadey_conn_id) {
+
+        printf("XCADEY DISCONNECTED\n");
+
+        xcadey_connected = false;
+        xcadey_open_started = false;
+
+        xcadey_power_handle = 0;
+        xcadey_cccd_handle = 0;
+        xcadey_conn_id = INVALID_CONN_ID;
+    }
+
+    else if (polar_connected &&
+             param->disconnect.conn_id == polar_conn_id) {
+
+        printf("POLAR DISCONNECTED\n");
+
+        polar_connected = false;
+        polar_open_started = false;
+
+        polar_hr_handle = 0;
+        polar_hr = 0;
+
+        polar_conn_id = INVALID_CONN_ID;
+    }
+
+    else {
+
+        /*
+         * To może być np. połączenie MyWhoosh/Windows.
+         * GATTC callback dostaje również zdarzenia
+         * dla fizycznych linków używanych przez GATTS.
+         */
+        printf("GATTC DISCONNECT ignored - unknown/non-client conn\n");
+    }
+
+    break;     
+
         case ESP_GATTC_REG_EVT:
             printf("REGISTER OK IF=%d\n", gattc_if);
             gattc_if_global = gattc_if;
@@ -1112,14 +1391,62 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
         case ESP_GATTS_START_EVT:
             printf("SERVICE STARTED\n");
         break;        
-        case ESP_GATTS_REG_EVT:
-            printf("GATTS REG\n");
-            if (param->reg.status == ESP_GATT_OK) {
-                esp_ble_gatts_create_attr_tab(ftms_gatt_db, gatts_if, FTMS_IDX_NB, 0);
-                esp_ble_gatts_create_attr_tab(hr_gatt_db, gatts_if, HR_IDX_NB, 0);
-            }
+case ESP_GATTS_REG_EVT: {
+
+    printf("GATTS REG status=%d app_id=%u if=%d\n",
+           param->reg.status,
+           param->reg.app_id,
+           gatts_if);
+
+    if (param->reg.status != ESP_GATT_OK) {
+        printf("GATTS REG FAILED\n");
         break;
-        case ESP_GATTS_CREAT_ATTR_TAB_EVT:
+    }
+
+    esp_err_t err = esp_ble_gatts_create_attr_tab(
+        ftms_gatt_db,
+        gatts_if,
+        FTMS_IDX_NB,
+        0
+    );
+
+    printf("CREATE FTMS TABLE ret=%d (%s)\n",
+           err, esp_err_to_name(err));
+
+    break;
+}
+        // case ESP_GATTS_CREAT_ATTR_TAB_EVT:
+
+        //     printf("ATTR TAB num=%u\n", param->add_attr_tab.num_handle);
+
+        //     if (param->add_attr_tab.num_handle == FTMS_IDX_NB) {
+
+        //         memcpy(ftms_handle_table,
+        //             param->add_attr_tab.handles,
+        //             sizeof(ftms_handle_table));
+
+        //         esp_ble_gatts_start_service(
+        //             ftms_handle_table[IDX_SVC]
+        //         );
+
+        //         printf("FTMS START\n");
+        //     }
+        //     else if (param->add_attr_tab.num_handle == HR_IDX_NB) {
+
+        //         memcpy(hr_handle_table,
+        //             param->add_attr_tab.handles,
+        //             sizeof(hr_handle_table));
+
+        //         esp_ble_gatts_start_service(
+        //             hr_handle_table[HR_IDX_SVC]
+        //         );
+
+        //         printf("HR START\n");
+        //     }
+
+        // break;
+
+/**        
             printf("ATTR TAB num=%u\n",param->add_attr_tab.num_handle);
             memcpy(ftms_handle_table, param->add_attr_tab.handles, sizeof(ftms_handle_table));
             esp_ble_gatts_start_service(ftms_handle_table[IDX_SVC]);
@@ -1145,80 +1472,292 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
                 esp_ble_gatts_start_service(hr_handle_table[HR_IDX_SVC]);
                 printf("HR START\n");
             }
-        break;
-        case ESP_GATTS_CONNECT_EVT:
-            printf("FTMS CONNECT conn=%u\n", param->connect.conn_id);
-            ftms_conn_id = param->connect.conn_id;
-            ftms_gatts_if = gatts_if;
-            ftms_connected = true;
-
-            printf("FTMS client connected\n");
-            esp_ble_gatts_send_indicate(
-                ftms_gatts_if,
-                ftms_conn_id,
-                ftms_handle_table[IDX_CHAR_VAL_BIKE_DATA],
-                sizeof(bike_data),
-                bike_data,
-                false);
-            esp_ble_gatts_send_indicate(
-                ftms_gatts_if,
-                ftms_conn_id,
-                hr_handle_table[HR_IDX_VAL],
-                sizeof(hr_measurement),
-                hr_measurement,
-                false);                    
-            printf("%02X:%02X:%02X:%02X:%02X:%02X\n",
-                param->connect.remote_bda[0],
-                param->connect.remote_bda[1],
-                param->connect.remote_bda[2],
-                param->connect.remote_bda[3],
-                param->connect.remote_bda[4],
-                param->connect.remote_bda[5]);
-        break; 
-        case ESP_GATTS_DISCONNECT_EVT:
-            printf("GATTS DISCONNECT conn=%u\n", param->disconnect.conn_id);
-            ftms_connected = false;
-            printf("GATTS DISCONNECTED\n");
-        break;        
-       
-        case ESP_GATTS_WRITE_EVT:
-
-            // CCCD dla Control Point
-            if (param->write.handle == ftms_handle_table[IDX_CHAR_CFG_CP]) {
-                uint16_t cccd = param->write.value[0] | (param->write.value[1] << 8);
-                ftms_cp_indications_enabled = (cccd & 0x0002);
-                printf("CP CCCD=%04X\n", cccd);
-            }
-            if(param->write.handle == hr_handle_table[HR_IDX_CFG]) {
-                uint16_t cccd = param->write.value[0] | (param->write.value[1] << 8);
-                hr_notify_enabled = (cccd & 0x0001);
-            }           
-
-            // Control Point (2AD9)
-            if (param->write.handle == ftms_handle_table[IDX_CHAR_VAL_CP] && param->write.len > 0) {
                 
-                // printf("CP raw:");
-                // for (int i = 0; i < param->write.len; i++)
-                //     printf(" %02X", param->write.value[i]);
-                // printf("\n");
+        break;
+*/        
+case ESP_GATTS_CREAT_ATTR_TAB_EVT: {
 
-                uint8_t opcode = param->write.value[0];
-                // switch(opcode) {
-                //     case 0x00: printf("Request Control\n"); break;
-                //     case 0x01: printf("Reset\n"); break;
-                //     case 0x02: printf("Set Target Speed\n"); break;
-                //     case 0x03: printf("Set Target Incline\n"); break;
-                //     case 0x04: printf("Set Target Resistance\n"); break;
-                //     case 0x05: printf("Set Target Power\n"); break;
-                //     case 0x07: printf("Start/Resume\n"); break;
-                //     case 0x08: printf("Stop/Pause\n"); break;
-                // }
-                // printf("CP opcode=%02X len=%d :", opcode, param->write.len);
-                // for (int i = 0; i < param->write.len; i++)
-                //     printf(" %02X", param->write.value[i]);
-                // printf("\n");
+    printf("ATTR TAB status=%d num=%u\n",
+           param->add_attr_tab.status,
+           param->add_attr_tab.num_handle);
 
-                if (opcode == 0x05) {
+    if (param->add_attr_tab.status != ESP_GATT_OK) {
+        printf("ATTR TABLE FAILED status=%d\n",
+               param->add_attr_tab.status);
+        break;
+    }
+
+    /*
+     * Najpierw FTMS
+     */
+    if (param->add_attr_tab.num_handle == FTMS_IDX_NB) {
+
+        memcpy(
+            ftms_handle_table,
+            param->add_attr_tab.handles,
+            sizeof(ftms_handle_table)
+        );
+
+        printf("FTMS TABLE OK\n");
+
+        for (int i = 0; i < FTMS_IDX_NB; i++) {
+            printf("FTMS handle[%d]=%u\n",
+                   i,
+                   ftms_handle_table[i]);
+        }
+
+        esp_err_t err =
+            esp_ble_gatts_start_service(
+                ftms_handle_table[IDX_SVC]
+            );
+
+        printf("FTMS START ret=%d (%s), svc=%u\n",
+               err,
+               esp_err_to_name(err),
+               ftms_handle_table[IDX_SVC]);
+
+        /*
+         * Dopiero po utworzeniu FTMS tworzymy HR
+         */
+        err = esp_ble_gatts_create_attr_tab(
+            hr_gatt_db,
+            gatts_if,
+            HR_IDX_NB,
+            1
+        );
+
+        printf("CREATE HR TABLE ret=%d (%s)\n",
+               err,
+               esp_err_to_name(err));
+    }
+
+    /*
+     * Potem HR
+     */
+    else if (param->add_attr_tab.num_handle == HR_IDX_NB) {
+
+        memcpy(
+            hr_handle_table,
+            param->add_attr_tab.handles,
+            sizeof(hr_handle_table)
+        );
+
+        printf("HR TABLE OK\n");
+
+        for (int i = 0; i < HR_IDX_NB; i++) {
+            printf("HR handle[%d]=%u\n",
+                   i,
+                   hr_handle_table[i]);
+        }
+
+        esp_err_t err =
+            esp_ble_gatts_start_service(
+                hr_handle_table[HR_IDX_SVC]
+            );
+
+        printf("HR START ret=%d (%s), svc=%u\n",
+               err,
+               esp_err_to_name(err),
+               hr_handle_table[HR_IDX_SVC]);
+    }
+
+    else {
+        printf("UNKNOWN ATTR TABLE num=%u\n",
+               param->add_attr_tab.num_handle);
+    }
+
+    break;
+}
+case ESP_GATTS_CONNECT_EVT:
+
+    printf("GATTS CONNECT conn=%u role=%u "
+           "%02X:%02X:%02X:%02X:%02X:%02X\n",
+           param->connect.conn_id,
+           param->connect.link_role,
+           param->connect.remote_bda[0],
+           param->connect.remote_bda[1],
+           param->connect.remote_bda[2],
+           param->connect.remote_bda[3],
+           param->connect.remote_bda[4],
+           param->connect.remote_bda[5]);
+
+    /*
+     * role=1 -> ESP32 jest peripheral,
+     * czyli to PC / MyWhoosh.
+     */
+
+if (param->connect.link_role == 1) {
+
+    ftms_connected = true;
+    ftms_conn_id = param->connect.conn_id;
+    ftms_gatts_if = gatts_if;
+
+    ftms_bike_notify_enabled = false;
+    ftms_training_notify_enabled = false;
+    ftms_status_notify_enabled = false;
+    ftms_cp_indications_enabled = false;
+
+    ftms_started = false;
+
+    printf("FTMS CLIENT CONNECTED conn=%u gatts_if=%u\n",
+           ftms_conn_id,
+           ftms_gatts_if);
+}
+
+    break;
+
+case ESP_GATTS_DISCONNECT_EVT:
+
+    printf("GATTS DISCONNECT conn=%u reason=%u\n",
+           param->disconnect.conn_id,
+           param->disconnect.reason);
+
+
+    /*
+     * Bluedroid generuje GATTS disconnect także dla
+     * połączeń wykonanych przez GATTC.
+     *
+     * Czyścimy FTMS tylko wtedy, gdy rozłączył się
+     * faktyczny klient FTMS.
+     */
+    if (ftms_connected &&
+        param->disconnect.conn_id == ftms_conn_id) {
+
+        printf("FTMS CLIENT DISCONNECTED conn=%u\n",
+               ftms_conn_id);
+ftms_bike_notify_enabled = false;
+ftms_training_notify_enabled = false;
+ftms_status_notify_enabled = false;
+ftms_cp_indications_enabled = false;
+ftms_started = false;
+        ftms_connected = false;
+        ftms_conn_id = INVALID_CONN_ID;
+        ftms_gatts_if = ESP_GATT_IF_NONE;
+
+        
+
+        esp_err_t err =
+            esp_ble_gap_start_advertising(&adv_params);
+
+        printf("Advertising restart: %s\n",
+               esp_err_to_name(err));
+    }
+    else {
+
+        printf("GATTS DISCONNECT ignored - not FTMS client\n");
+    }
+
+    break;
+
+case ESP_GATTS_WRITE_EVT: 
+
+if (param->write.len == 2) {
+
+    uint16_t cccd =
+        param->write.value[0] |
+        (param->write.value[1] << 8);
+
+    if (param->write.handle ==
+        ftms_handle_table[IDX_CHAR_CFG_BIKE_DATA]) {
+
+        ftms_bike_notify_enabled =
+            (cccd & 0x0001) != 0;
+
+        printf("BIKE CCCD=%04X notify=%d\n",
+               cccd,
+               ftms_bike_notify_enabled);
+    }
+
+    else if (param->write.handle ==
+             ftms_handle_table[IDX_CHAR_CFG_TRAINING]) {
+
+        ftms_training_notify_enabled =
+            (cccd & 0x0001) != 0;
+
+        printf("TRAINING CCCD=%04X notify=%d\n",
+               cccd,
+               ftms_training_notify_enabled);
+    }
+
+    else if (param->write.handle ==
+             ftms_handle_table[IDX_CHAR_CFG_STATUS]) {
+
+        ftms_status_notify_enabled =
+            (cccd & 0x0001) != 0;
+
+        printf("STATUS CCCD=%04X notify=%d\n",
+               cccd,
+               ftms_status_notify_enabled);
+    }
+
+    else if (param->write.handle ==
+             ftms_handle_table[IDX_CHAR_CFG_CP]) {
+
+        ftms_cp_indications_enabled =
+            (cccd & 0x0002) != 0;
+
+        printf("CP CCCD=%04X indications=%d\n",
+               cccd,
+               ftms_cp_indications_enabled);
+    }
+}
+
+    /*
+     * CCCD Control Point
+     */
+    if (param->write.handle ==
+        ftms_handle_table[IDX_CHAR_CFG_CP]) {
+
+        if (param->write.len >= 2) {
+
+            uint16_t cccd =
+                param->write.value[0] |
+                (param->write.value[1] << 8);
+
+            ftms_cp_indications_enabled =
+                (cccd & 0x0002) != 0;
+
+            printf("CP CCCD=%04X indications=%d\n",
+                   cccd,
+                   ftms_cp_indications_enabled);
+        }
+    }
+
+    /*
+     * Control Point
+     */
+if (param->write.handle ==
+        ftms_handle_table[IDX_CHAR_VAL_CP] &&
+    param->write.len > 0) {
+
+    uint8_t opcode = param->write.value[0];
+
+    printf("FTMS CP WRITE conn=%u opcode=%02X len=%u\n",
+           param->write.conn_id,
+           opcode,
+           param->write.len);
+
+    printf("CP DATA:");
+    for (int i = 0; i < param->write.len; i++)
+        printf(" %02X", param->write.value[i]);
+    printf("\n");
+
+    // Start / Resume
+if (opcode == 0x07) {
+    ftms_started = true;
+    printf("FTMS STARTED\n");
+}
+else if (opcode == 0x08) {
+    ftms_started = false;
+    printf("FTMS STOPPED\n");
+}
+    // sterowanie mocą ERG
+    if (opcode == 0x05 && param->write.len >= 3) {
+        uint16_t power =
+            param->write.value[1] |
+            (param->write.value[2] << 8);
+
+        printf("SET TARGET POWER=%u\n", power);
                     // blink LED to indicate power change
                     if(green > 0) {
                         blue = 0x32;
@@ -1230,8 +1769,7 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
                         green = 0x32;
                         red = 0;
                     }
-                    uint16_t power = param->write.value[1] | (param->write.value[2] << 8);
-                    if (power < 0xa0) {    //<160W 
+              if (power < 0xa0) {    //<160W 
                         if (power < 0x78)  //<120W
                             power += 0x08;
                         power += 0x10;
@@ -1243,29 +1781,58 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
                     elite_send(byte_1, byte_2);
                 }
                 uint8_t resp[3] = {0x80, opcode, 0x01 };
-                esp_ble_gatts_send_indicate(gatts_if, param->write.conn_id, ftms_handle_table[IDX_CHAR_VAL_CP], sizeof(resp), resp, true);
+if (ftms_cp_indications_enabled) {
+    esp_ble_gatts_send_indicate(
+        gatts_if,
+        param->write.conn_id,
+        ftms_handle_table[IDX_CHAR_VAL_CP],
+        sizeof(resp),
+        resp,
+        true
+    );                
+               
                 // printf("FTMS CP opcode=%02X\n", opcode);
 
-            }
-            if (param->write.need_rsp) {
-                esp_ble_gatts_send_response(
-                    gatts_if,
-                    param->write.conn_id,
-                    param->write.trans_id,
-                    ESP_GATT_OK,
-                    NULL);
-            }
-        break;
+        // ...Twoja dalsza obsługa...
+    }
+
+    // odpowiedź Control Point
+    // uint8_t resp[3] = {0x80, opcode, 0x01};
+
+    // ...
+    }
+
+    /*
+     * Zwykłe zapisy
+     */
+    if (param->write.need_rsp) {
+
+        esp_ble_gatts_send_response(
+            gatts_if,
+            param->write.conn_id,
+            param->write.trans_id,
+            ESP_GATT_OK,
+            NULL
+        );
+    }
+
+    break;       
+
         case ESP_GATTS_READ_EVT:
             // printf("READ handle=%u\n", param->read.handle);
         break;     
-        case ESP_GATTS_CONF_EVT:
-            ;
-            // printf("CONF handle=%u status=%d\n",
-            //         param->conf.handle,
-            //         param->conf.status);
-        break;
-      
+case ESP_GATTS_CONF_EVT:
+
+    if (param->conf.handle ==
+        ftms_handle_table[IDX_CHAR_VAL_CP]) {
+
+        printf("FTMS CP CONF status=%d\n",
+               param->conf.status);
+    }
+
+    break;
+
+    break;
         default:
             ;
         break; 
@@ -1304,10 +1871,16 @@ void app_main(void) {
     esp_ble_gap_set_device_name("ESP32-FTMS");    
     ESP_ERROR_CHECK(esp_ble_gatts_register_callback(gatts_cb));
     ESP_ERROR_CHECK(esp_ble_gatts_app_register(1));    
-    //esp_err_t ret;
 
+esp_err_t err = esp_ble_gap_config_adv_data_raw(
+    raw_adv_data,
+    sizeof(raw_adv_data)
+);
+
+printf("ADV RAW config: %s\n", esp_err_to_name(err));    
+    //esp_err_t ret;
     //ret = 
-    esp_ble_gap_config_adv_data(&adv_data);
+    // esp_ble_gap_config_adv_data(&adv_data);
     // printf("config_adv_data ret=%d %s\n", ret, esp_err_to_name(ret));
 
     //ret = 
