@@ -189,9 +189,7 @@ static uint8_t training_ccc[2] = {0, 0};
 static const uint8_t cp_ccc[2] = {0, 0};
 static uint8_t bike_ccc[2] = {0, 0};
 
-static const uint8_t char_prop_read_notify =
-    ESP_GATT_CHAR_PROP_BIT_READ |
-    ESP_GATT_CHAR_PROP_BIT_NOTIFY;
+static const uint8_t char_prop_read_notify = ESP_GATT_CHAR_PROP_BIT_READ | ESP_GATT_CHAR_PROP_BIT_NOTIFY;
 #ifdef POLAR
 static const uint8_t char_prop_notify_only = ESP_GATT_CHAR_PROP_BIT_NOTIFY;
 #endif
@@ -1176,13 +1174,13 @@ static void gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble
             }
             if (is_rampa && h_347b0010 && h_347b0011) {          //&& is_polar    
                 elite_ready = true;    
+                elite_send(0x50, 0x00);
 #ifdef CONFIG_LED_STRIP_ENABLED                
                 green = 50;
                 red = 0;
 #else                
                 led_blink = 500;
 #endif
-                elite_send(0x50, 0x00);
                 if(found_xcadey && !xcadey_open_started) {
                     xcadey_open_started = true;
                     esp_ble_gattc_open(gattc_if_global, xcadey_addr, xcadey_addr_type, true);
@@ -1700,6 +1698,18 @@ else if (opcode == 0x08) {
         uint16_t power = param->write.value[1] | (param->write.value[2] << 8);
 
         printf("SET TARGET POWER=%u\n", power);
+
+                   if (power < 0xa0) {    //<160W 
+                        if (power < 0x78)  //<120W
+                            power += 0x08;
+                        power += 0x1e;
+                    }
+                    else
+                        power += 0x20;
+
+                    uint8_t byte_1 = power & 0xff;
+                    uint8_t byte_2 = power >> 8;
+                    elite_send(byte_1, byte_2);
                     // blink LED to indicate power change
 #ifdef CONFIG_LED_STRIP_ENABLED
                     if(green > 0) {
@@ -1713,21 +1723,10 @@ else if (opcode == 0x08) {
                         red = 0;
                     }
 #else
-         led_blink = 100;
-         vTaskDelay(pdMS_TO_TICKS(1000));
-         led_blink = 500;
-#endif
-                   if (power < 0xa0) {    //<160W 
-                        if (power < 0x78)  //<120W
-                            power += 0x0a;
-                        power += 0x20;
-                    }
-                    else
-                        power += 0x20;
-
-                    uint8_t byte_1 = power & 0xff;
-                    uint8_t byte_2 = power >> 8;
-                    elite_send(byte_1, byte_2);
+                        led_blink = 100;
+                        vTaskDelay(pdMS_TO_TICKS(1000));
+                        led_blink = 500;
+#endif                    
                 }
                 uint8_t resp[3] = {0x80, opcode, 0x01 };
 if (ftms_cp_indications_enabled) {
@@ -1830,12 +1829,9 @@ void app_main(void) {
     ESP_ERROR_CHECK(esp_ble_gatts_register_callback(gatts_cb));
     ESP_ERROR_CHECK(esp_ble_gatts_app_register(1));    
 
-esp_err_t err = esp_ble_gap_config_adv_data_raw(
-    raw_adv_data,
-    sizeof(raw_adv_data)
-);
+    esp_err_t err = esp_ble_gap_config_adv_data_raw( raw_adv_data, sizeof(raw_adv_data));
 
-printf("ADV RAW config: %s\n", esp_err_to_name(err));    
+    printf("ADV RAW config: %s\n", esp_err_to_name(err));    
     //esp_err_t ret;
     //ret = 
     // esp_ble_gap_config_adv_data(&adv_data);
