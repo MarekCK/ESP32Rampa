@@ -1864,13 +1864,11 @@ void app_main(void) {
                         red += 0x0a;
 #else
                         led_blink = 100;
-                        vTaskDelay(pdMS_TO_TICKS(1000));
-                        led_blink = 500;
 #endif
                         // printf("res=%d r=%d, g=%d, b=,%d\n", resistance, red, green, blue);
                         if (resistance >= 0x200) {
                             resistance = 0x80;
-#ifdef CONFIG_LED_STRIP                            
+#ifdef CONFIG_LED_STRIP_ENABLED                           
                             red = 0x00;
 #endif                            
                         } 
@@ -1882,8 +1880,6 @@ void app_main(void) {
                             red -= 0x0a;
 #else                            
                             led_blink = 1000;
-                            vTaskDelay(pdMS_TO_TICKS(1000));
-                            led_blink = 500;
 #endif                            
                             // printf("res=%d r=%d, g=%d, b=,%d\n", resistance, red, green, blue);
                         }
@@ -1892,6 +1888,10 @@ void app_main(void) {
                 uint8_t byte_1 = resistance & 0xff;
                 uint8_t byte_2 = resistance  >> 8;
                 elite_send(byte_1, byte_2);   
+#ifndef  CONFIG_LED_STRIP_ENABLED             
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                led_blink = 500;
+#endif
             }
             last_btn = btn;    
         }        
