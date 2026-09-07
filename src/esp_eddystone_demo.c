@@ -174,14 +174,14 @@ static const uint8_t feature_value[8] =
     0x0C, 0x20, 0x00, 0x00
 };
 
-static uint8_t bike_data[12] =
+static uint8_t bike_data[8] =
 {
-    0x24, 0x02,  
+    0x24, 0x00,  
     0x00, 0x00,
     0x00, 0x00,
     0x00, 0x00,
-    0x00, 0x00,
-    0x00, 0x00
+    // 0x00, 0x00,
+    // 0x00, 0x00
 };
 
 static uint8_t status_ccc[2] = {0, 0};
@@ -676,25 +676,76 @@ void rouvy_send(uint16_t xpower, uint16_t xcadence)
     if (!ftms_bike_notify_enabled)
         return;
 
-    bike_data[0] = 0x64;
-    bike_data[1] = 0x02;
+    if (ftms_congested)
+        return;        
+bike_data[0] = 0x44;
+bike_data[1] = 0x00;
 
-    xcadence *= 2;
+/* Instantaneous Speed */
+bike_data[2] = 0;
+bike_data[3] = 0;
 
-    bike_data[4] = xcadence & 0xff;
-    bike_data[5] = xcadence >> 8;
+/* Instantaneous Cadence - 0.5 rpm */
+uint16_t cadence_ftms = xcadence * 2;
+bike_data[4] = cadence_ftms & 0xff;
+bike_data[5] = cadence_ftms >> 8;
 
-    bike_data[8] = xpower & 0xff;
-    bike_data[9] = xpower >> 8;
+/* Resistance Level */
+// bike_data[6] = 0;
+// bike_data[7] = 0;
 
-    esp_err_t err = esp_ble_gatts_send_indicate(
-        ftms_gatts_if,
-        ftms_conn_id,
-        ftms_handle_table[IDX_CHAR_VAL_BIKE_DATA],
-        sizeof(bike_data),
-        bike_data,
-        false
-    );
+/* Instantaneous Power */
+bike_data[6] = xpower & 0xff;
+bike_data[7] = xpower >> 8;
+
+    // bike_data[0] = 0x64;
+    // bike_data[1] = 0x02;
+
+    // xcadence *= 2;
+
+    // bike_data[4] = xcadence & 0xff;
+    // bike_data[5] = xcadence >> 8;
+
+    // bike_data[8] = xpower & 0xff;
+    // bike_data[9] = xpower >> 8;
+static uint32_t bike_tx_count = 0;
+
+esp_err_t err = esp_ble_gatts_send_indicate(
+    ftms_gatts_if,
+    ftms_conn_id,
+    ftms_handle_table[IDX_CHAR_VAL_BIKE_DATA],
+    sizeof(bike_data),
+    bike_data,
+    false
+);
+
+if (err != ESP_OK) {
+    printf("BIKE notify err=%d (%s) conn=%u if=%u started=%d notify=%d congested=%d\n",
+           err,
+           esp_err_to_name(err),
+           ftms_conn_id,
+           ftms_gatts_if,
+           ftms_started,
+           ftms_bike_notify_enabled,
+           ftms_congested);
+}
+else {
+    bike_tx_count++;
+
+    if ((bike_tx_count % 10) == 0) {
+        printf("BIKE TX OK #%lu conn=%u P=%u C=%u data:",
+               (unsigned long)bike_tx_count,
+               ftms_conn_id,
+               xpower,
+               xcadence / 2);
+
+        for (int i = 0; i < sizeof(bike_data); i++)
+            printf(" %02X", bike_data[i]);
+
+        printf("\n");
+    }
+}
+
 if (err != ESP_OK) {
     printf("BIKE notify err=%d (%s) conn=%u if=%u started=%d notify=%d congested=%d\n",
            err,
@@ -706,13 +757,6 @@ if (err != ESP_OK) {
            ftms_congested);
 }
 
-    // if (err != ESP_OK) {
-    //     printf("BIKE notify err=%d conn=%u if=%u started=%d notify=%d\n",
-    //            err,
-    //            ftms_conn_id,
-    //            ftms_gatts_if,
-    //            ftms_started,
-    //            ftms_bike_notify_enabled);
     // }
 }
 
