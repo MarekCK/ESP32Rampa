@@ -8,10 +8,10 @@
         {
             "name": "PlatformIO",
             "includePath": [
-                "/home/marek/Dokumenty/PlatformIO/Projects/ESP32Rampa/include",
-                "/home/marek/Dokumenty/PlatformIO/Projects/ESP32Rampa/src",
+                "/home/marek/PlatformIO/Projects/ESP32Rampa/include",
+                "/home/marek/PlatformIO/Projects/ESP32Rampa/src",
                 "/home/marek/.platformio/packages/framework-espidf/components/riscv/include",
-                "/home/marek/Dokumenty/PlatformIO/Projects/ESP32Rampa/.pio/build/esp32-c3-devkitm-1/config",
+                "/home/marek/PlatformIO/Projects/ESP32Rampa/.pio/build/esp32-c3-devkitm-1/config",
                 "/home/marek/.platformio/packages/framework-espidf/components/esp_libc/platform_include",
                 "/home/marek/.platformio/packages/framework-espidf/components/freertos/config/include",
                 "/home/marek/.platformio/packages/framework-espidf/components/freertos/config/include/freertos",
@@ -234,17 +234,17 @@
                 "/home/marek/.platformio/packages/framework-espidf/components/ieee802154/include",
                 "/home/marek/.platformio/packages/framework-espidf/components/rt/include",
                 "/home/marek/.platformio/packages/framework-espidf/components/spiffs/include",
-                "/home/marek/Dokumenty/PlatformIO/Projects/ESP32Rampa/managed_components/espressif__led_strip/include",
-                "/home/marek/Dokumenty/PlatformIO/Projects/ESP32Rampa/managed_components/espressif__led_strip/interface",
+                "/home/marek/PlatformIO/Projects/ESP32Rampa/managed_components/espressif__led_strip/include",
+                "/home/marek/PlatformIO/Projects/ESP32Rampa/managed_components/espressif__led_strip/interface",
                 ""
             ],
             "browse": {
                 "limitSymbolsToIncludedHeaders": true,
                 "path": [
-                    "/home/marek/Dokumenty/PlatformIO/Projects/ESP32Rampa/include",
-                    "/home/marek/Dokumenty/PlatformIO/Projects/ESP32Rampa/src",
+                    "/home/marek/PlatformIO/Projects/ESP32Rampa/include",
+                    "/home/marek/PlatformIO/Projects/ESP32Rampa/src",
                     "/home/marek/.platformio/packages/framework-espidf/components/riscv/include",
-                    "/home/marek/Dokumenty/PlatformIO/Projects/ESP32Rampa/.pio/build/esp32-c3-devkitm-1/config",
+                    "/home/marek/PlatformIO/Projects/ESP32Rampa/.pio/build/esp32-c3-devkitm-1/config",
                     "/home/marek/.platformio/packages/framework-espidf/components/esp_libc/platform_include",
                     "/home/marek/.platformio/packages/framework-espidf/components/freertos/config/include",
                     "/home/marek/.platformio/packages/framework-espidf/components/freertos/config/include/freertos",
@@ -467,8 +467,8 @@
                     "/home/marek/.platformio/packages/framework-espidf/components/ieee802154/include",
                     "/home/marek/.platformio/packages/framework-espidf/components/rt/include",
                     "/home/marek/.platformio/packages/framework-espidf/components/spiffs/include",
-                    "/home/marek/Dokumenty/PlatformIO/Projects/ESP32Rampa/managed_components/espressif__led_strip/include",
-                    "/home/marek/Dokumenty/PlatformIO/Projects/ESP32Rampa/managed_components/espressif__led_strip/interface",
+                    "/home/marek/PlatformIO/Projects/ESP32Rampa/managed_components/espressif__led_strip/include",
+                    "/home/marek/PlatformIO/Projects/ESP32Rampa/managed_components/espressif__led_strip/interface",
                     ""
                 ]
             },
@@ -489,7 +489,7 @@
             "cppStandard": "gnu++26",
             "compilerPath": "/home/marek/.platformio/packages/toolchain-riscv32-esp/bin/riscv32-esp-elf-gcc",
             "compilerArgs": [
-                "@/home/marek/Dokumenty/PlatformIO/Projects/ESP32Rampa/.pio/build/esp32-c3-devkitm-1/toolchain/cflags",
+                "@/home/marek/PlatformIO/Projects/ESP32Rampa/.pio/build/esp32-c3-devkitm-1/toolchain/cflags",
                 ""
             ]
         }
