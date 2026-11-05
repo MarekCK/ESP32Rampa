@@ -160,23 +160,23 @@ static const uint8_t power_range[] =
     0x01, 0x00      // step = 1 W
 };
 
-// static const uint8_t feature_value[8] =
-// {
-//     0x82, 0x40, 0x00, 0x00,
-//     0x0c, 0x00, 0x00, 0x00
-// };
-
 static const uint8_t feature_value[8] =
 {
-    // Fitness Machine Features
     0x82, 0x40, 0x00, 0x00,
-
-    // Target Setting Features
-    // bit 2  = resistance
-    // bit 3  = power
-    // bit 13 = indoor bike simulation
-    0x0C, 0x20, 0x00, 0x00
+    0x0c, 0x00, 0x00, 0x00
 };
+
+// static const uint8_t feature_value[8] =
+// {
+//     // Fitness Machine Features
+//     0x82, 0x40, 0x00, 0x00,
+
+//     // Target Setting Features
+//     // bit 2  = resistance
+//     // bit 3  = power
+//     // bit 13 = indoor bike simulation
+//     0x0C, 0x20, 0x00, 0x00
+// };
 
 static uint8_t bike_data[8] =
 {
